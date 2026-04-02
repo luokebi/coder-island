@@ -1,0 +1,348 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000010000000000000001 /* CoderIslandApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001; };
+		A10000020000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000020000000000000001; };
+		A10000030000000000000001 /* NotchWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000030000000000000001; };
+		A10000040000000000000001 /* NotchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000040000000000000001; };
+		A10000050000000000000001 /* NotchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000050000000000000001; };
+		A10000060000000000000001 /* AgentRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000001; };
+		A10000070000000000000001 /* TagBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000001; };
+		A10000080000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000080000000000000001; };
+		A10000090000000000000001 /* AgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000090000000000000001; };
+		A100000A0000000000000001 /* AgentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A0000000000000001; };
+		A100000B0000000000000001 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000B0000000000000001; };
+		A100000C0000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A200000C0000000000000001; };
+		A100000D0000000000000001 /* CompactBarWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000D0000000000000002; };
+		A100000E0000000000000001 /* CompactBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E0000000000000002; };
+		A100000F0000000000000001 /* HookServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000F0000000000000002; };
+		A10000100000000000000001 /* HookInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000100000000000000002; };
+		A10000110000000000000001 /* PermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000110000000000000002; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000010000000000000001 /* CoderIslandApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderIslandApp.swift; sourceTree = "<group>"; };
+		A20000020000000000000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A20000030000000000000001 /* NotchWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchWindow.swift; sourceTree = "<group>"; };
+		A20000040000000000000001 /* NotchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchViewModel.swift; sourceTree = "<group>"; };
+		A20000050000000000000001 /* NotchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchView.swift; sourceTree = "<group>"; };
+		A20000060000000000000001 /* AgentRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRowView.swift; sourceTree = "<group>"; };
+		A20000070000000000000001 /* TagBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagBadge.swift; sourceTree = "<group>"; };
+		A20000080000000000000001 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A20000090000000000000001 /* AgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus.swift; sourceTree = "<group>"; };
+		A200000A0000000000000001 /* AgentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentManager.swift; sourceTree = "<group>"; };
+		A200000B0000000000000001 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
+		A200000C0000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A200000D0000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A200000E0000000000000001 /* Entitlements.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.entitlements; sourceTree = "<group>"; };
+		A200000F0000000000000001 /* CoderIsland.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CoderIsland.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000D0000000000000002 /* CompactBarWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactBarWindow.swift; sourceTree = "<group>"; };
+		A200000E0000000000000002 /* CompactBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactBarView.swift; sourceTree = "<group>"; };
+		A200000F0000000000000002 /* HookServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookServer.swift; sourceTree = "<group>"; };
+		A20000100000000000000002 /* HookInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookInstaller.swift; sourceTree = "<group>"; };
+		A20000110000000000000002 /* PermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000010000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A40000020000000000000001 /* CoderIsland */,
+				A40000060000000000000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A40000020000000000000001 /* CoderIsland */ = {
+			isa = PBXGroup;
+			children = (
+				A20000010000000000000001 /* CoderIslandApp.swift */,
+				A20000020000000000000001 /* AppDelegate.swift */,
+				A200000D0000000000000001 /* Info.plist */,
+				A200000E0000000000000001 /* Entitlements.entitlements */,
+				A200000C0000000000000001 /* Assets.xcassets */,
+				A40000030000000000000001 /* Window */,
+				A40000040000000000000001 /* Views */,
+				A40000050000000000000001 /* Agents */,
+				A40000070000000000000001 /* Audio */,
+				A40000080000000000000001 /* HookServer */,
+			);
+			path = CoderIsland;
+			sourceTree = "<group>";
+		};
+		A40000030000000000000001 /* Window */ = {
+			isa = PBXGroup;
+			children = (
+				A20000030000000000000001 /* NotchWindow.swift */,
+				A20000040000000000000001 /* NotchViewModel.swift */,
+				A200000D0000000000000002 /* CompactBarWindow.swift */,
+			);
+			path = Window;
+			sourceTree = "<group>";
+		};
+		A40000040000000000000001 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A20000050000000000000001 /* NotchView.swift */,
+				A20000060000000000000001 /* AgentRowView.swift */,
+				A20000070000000000000001 /* TagBadge.swift */,
+				A20000080000000000000001 /* SettingsView.swift */,
+				A200000E0000000000000002 /* CompactBarView.swift */,
+				A20000110000000000000002 /* PermissionView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A40000050000000000000001 /* Agents */ = {
+			isa = PBXGroup;
+			children = (
+				A20000090000000000000001 /* AgentStatus.swift */,
+				A200000A0000000000000001 /* AgentManager.swift */,
+			);
+			path = Agents;
+			sourceTree = "<group>";
+		};
+		A40000060000000000000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A200000F0000000000000001 /* CoderIsland.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A40000070000000000000001 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				A200000B0000000000000001 /* SoundManager.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+	A40000080000000000000001 /* HookServer */ = {
+			isa = PBXGroup;
+			children = (
+				A200000F0000000000000002 /* HookServer.swift */,
+				A20000100000000000000002 /* HookInstaller.swift */,
+			);
+			path = HookServer;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000010000000000000001 /* CoderIsland */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A70000010000000000000001 /* Build configuration list for PBXNativeTarget "CoderIsland" */;
+			buildPhases = (
+				A60000010000000000000001 /* Sources */,
+				A30000010000000000000001 /* Frameworks */,
+				A60000020000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CoderIsland;
+			productName = CoderIsland;
+			productReference = A200000F0000000000000001 /* CoderIsland.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A80000010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = A70000020000000000000001 /* Build configuration list for PBXProject "CoderIsland" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A40000010000000000000001;
+			productRefGroup = A40000060000000000000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A50000010000000000000001 /* CoderIsland */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A60000020000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A100000C0000000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A60000010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000001 /* CoderIslandApp.swift in Sources */,
+				A10000020000000000000001 /* AppDelegate.swift in Sources */,
+				A10000030000000000000001 /* NotchWindow.swift in Sources */,
+				A10000040000000000000001 /* NotchViewModel.swift in Sources */,
+				A10000050000000000000001 /* NotchView.swift in Sources */,
+				A10000060000000000000001 /* AgentRowView.swift in Sources */,
+				A10000070000000000000001 /* TagBadge.swift in Sources */,
+				A10000080000000000000001 /* SettingsView.swift in Sources */,
+				A10000090000000000000001 /* AgentStatus.swift in Sources */,
+				A100000A0000000000000001 /* AgentManager.swift in Sources */,
+				A100000B0000000000000001 /* SoundManager.swift in Sources */,
+				A100000D0000000000000001 /* CompactBarWindow.swift in Sources */,
+				A100000E0000000000000001 /* CompactBarView.swift in Sources */,
+				A100000F0000000000000001 /* HookServer.swift in Sources */,
+				A10000100000000000000001 /* HookInstaller.swift in Sources */,
+				A10000110000000000000001 /* PermissionView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A90000010000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A90000020000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A90000030000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CoderIsland/Entitlements.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CoderIsland/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coderisland.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A90000040000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CoderIsland/Entitlements.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CoderIsland/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.coderisland.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A70000010000000000000001 /* Build configuration list for PBXNativeTarget "CoderIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A90000030000000000000001 /* Debug */,
+				A90000040000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A70000020000000000000001 /* Build configuration list for PBXProject "CoderIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A90000010000000000000001 /* Debug */,
+				A90000020000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = A80000010000000000000001 /* Project object */;
+}
