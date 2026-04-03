@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Clawd Pixel Editor</title>
+<style>
+body { background: #1a1a1a; color: #fff; font-family: monospace; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+h2 { margin: 10px 0; }
+.editor { display: flex; gap: 40px; align-items: flex-start; }
+.grid { display: grid; gap: 1px; background: #333; padding: 1px; border: 2px solid #555; }
+.cell { width: 32px; height: 32px; cursor: pointer; transition: background 0.1s; }
+.cell:hover { opacity: 0.8; }
+.cell.filled { background: #d97757; }
+.cell.empty { background: #111; }
+.preview-section { text-align: center; }
+.preview { display: grid; gap: 0; margin: 10px auto; }
+.preview .px { width: 4px; height: 4px; }
+.preview .px.filled { background: #d97757; }
+.preview .px.empty { background: #111; }
+.output { background: #222; border: 1px solid #444; padding: 12px; border-radius: 8px; font-size: 12px; max-width: 500px; white-space: pre-wrap; word-break: break-all; margin-top: 10px; }
+.controls { margin: 15px 0; display: flex; gap: 10px; }
+button { background: #444; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-family: monospace; }
+button:hover { background: #666; }
+.size-controls { margin-bottom: 10px; }
+.size-controls label { margin: 0 8px; }
+.size-controls input { width: 50px; background: #333; color: #fff; border: 1px solid #555; padding: 4px; text-align: center; }
+.ref-img { margin: 20px 0; }
+.ref-img img { image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<h2>Clawd Pixel Editor</h2>
+
+<div class="size-controls">
+  <label>Cols: <input type="number" id="cols" value="8" min="4" max="16"></label>
+  <label>Rows: <input type="number" id="rows" value="7" min="4" max="16"></label>
+  <button onclick="resize()">Resize</button>
+</div>
+
+<div class="editor">
+  <div>
+    <div class="grid" id="grid"></div>
+    <div class="controls">
+      <button onclick="clearAll()">Clear</button>
+      <button onclick="copyOutput()">Copy Swift Code</button>
+    </div>
+  </div>
+  <div class="preview-section">
+    <div>Preview (2x)</div>
+    <div class="preview" id="preview"></div>
+    <div>Preview (actual 16x16)</div>
+    <div class="preview" id="preview-actual" style="border:1px solid #555;"></div>
+    <div style="margin-top:15px;">Swift Pixel Array:</div>
+    <div class="output" id="output"></div>
+  </div>
+</div>
+
+<script>
+let COLS = 8, ROWS = 7;
+let grid = [];
+
+// Current pixel data from code
+const initialPixels = [
+  [0,0],[7,0],
+  [0,1],[1,1],[6,1],[7,1],
+  [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],
+  [0,3],[2,3],[3,3],[4,3],[5,3],[7,3],
+  [0,4],[1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],
+  [1,5],[2,5],[3,5],[4,5],[5,5],[6,5],
+  [2,6],[5,6],
+];
+
+function init() {
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(false));
+  initialPixels.forEach(([x,y]) => {
+    if (y < ROWS && x < COLS) grid[y][x] = true;
+  });
+  render();
+}
+
+function render() {
+  const gridEl = document.getElementById('grid');
+  gridEl.style.gridTemplateColumns = `repeat(${COLS}, 32px)`;
+  gridEl.innerHTML = '';
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const cell = document.createElement('div');
+      cell.className = `cell ${grid[y][x] ? 'filled' : 'empty'}`;
+      cell.onmousedown = (e) => { e.preventDefault(); toggle(x, y); };
+      cell.onmouseenter = (e) => { if (e.buttons === 1) toggle(x, y); };
+      gridEl.appendChild(cell);
+    }
+  }
+  renderPreview();
+  renderOutput();
+}
+
+function toggle(x, y) {
+  grid[y][x] = !grid[y][x];
+  render();
+}
+
+function renderPreview() {
+  // 2x preview
+  const prev = document.getElementById('preview');
+  const pxSize = 4;
+  prev.style.gridTemplateColumns = `repeat(${COLS}, ${pxSize}px)`;
+  prev.innerHTML = '';
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const px = document.createElement('div');
+      px.className = `px ${grid[y][x] ? 'filled' : 'empty'}`;
+      prev.appendChild(px);
+    }
+  }
+
+  // Actual size preview (16x16 with p=2)
+  const actual = document.getElementById('preview-actual');
+  const frameW = 16, frameH = 16, p = 2;
+  actual.style.width = frameW + 'px';
+  actual.style.height = frameH + 'px';
+  actual.style.position = 'relative';
+  actual.style.display = 'block';
+  actual.innerHTML = '';
+  const ox = (frameW - COLS * p) / 2;
+  const oy = (frameH - ROWS * p) / 2;
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (grid[y][x]) {
+        const px = document.createElement('div');
+        px.style.cssText = `position:absolute;left:${ox+x*p}px;top:${oy+y*p}px;width:${p}px;height:${p}px;background:#d97757;`;
+        actual.appendChild(px);
+      }
+    }
+  }
+}
+
+function renderOutput() {
+  const pixels = [];
+  for (let y = 0; y < ROWS; y++) {
+    const rowPixels = [];
+    for (let x = 0; x < COLS; x++) {
+      if (grid[y][x]) rowPixels.push(`(${x},${y})`);
+    }
+    if (rowPixels.length) pixels.push(`    // Row ${y}\n    ${rowPixels.join(',')},`);
+  }
+  document.getElementById('output').textContent = pixels.join('\n');
+}
+
+function clearAll() { grid = Array.from({length: ROWS}, () => Array(COLS).fill(false)); render(); }
+
+function resize() {
+  COLS = parseInt(document.getElementById('cols').value);
+  ROWS = parseInt(document.getElementById('rows').value);
+  const oldGrid = grid;
+  grid = Array.from({length: ROWS}, (_, y) => Array.from({length: COLS}, (_, x) => oldGrid[y]?.[x] || false));
+  render();
+}
+
+function copyOutput() {
+  navigator.clipboard.writeText(document.getElementById('output').textContent);
+}
+
+init();
+</script>
+</body>
+</html>

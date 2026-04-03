@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ApplicationServices
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -9,10 +10,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        requestAccessibilityPermissionIfNeeded()
         setupStatusItem()
         agentManager.startMonitoring()
         showIsland()
         startHookServer()
+    }
+
+    private func requestAccessibilityPermissionIfNeeded() {
+        let bundlePath = Bundle.main.bundleURL.path
+        let isTrusted = AXIsProcessTrusted()
+        debugLog("[Accessibility] bundlePath='\(bundlePath)' trusted=\(isTrusted)")
+
+        guard !isTrusted else { return }
+
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let prompted = AXIsProcessTrustedWithOptions(options)
+        debugLog("[Accessibility] prompted trusted=\(prompted)")
     }
 
     private func setupStatusItem() {

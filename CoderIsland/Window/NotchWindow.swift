@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 import Combine
 
+class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 // Container that strips all backgrounds from the NSHostingView hierarchy
 class TransparentContainerView: NSView {
     override var isOpaque: Bool { false }
@@ -38,14 +42,17 @@ private extension NSView {
     }
 }
 
-class NotchWindow: NSPanel {
+class NotchWindow: NSWindow {
     private let agentManager: AgentManager
     private var clickOutsideMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
     private let panelWidth: CGFloat = 500
     private let barWidth: CGFloat = 340
-    private var hostingView: NSHostingView<IslandView>!
+    private var hostingView: ClickThroughHostingView<IslandView>!
     let viewModel: NotchWindowViewModel
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 
     /// Find the built-in display (has notch), or fall back to main screen
     private static func preferredScreen() -> NSScreen {
@@ -78,7 +85,7 @@ class NotchWindow: NSPanel {
 
         super.init(
             contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -90,7 +97,8 @@ class NotchWindow: NSPanel {
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         self.isMovableByWindowBackground = false
         self.hidesOnDeactivate = false
-        self.becomesKeyOnlyIfNeeded = true
+        self.acceptsMouseMovedEvents = true
+        self.ignoresMouseEvents = false
 
         // Calculate notch camera region (relative to center of bar)
         var notchWidth: CGFloat = 0
@@ -110,7 +118,7 @@ class NotchWindow: NSPanel {
         viewModel.notchHeight = notchHeight
 
         let rootView = IslandView(agentManager: agentManager, viewModel: viewModel)
-        self.hostingView = NSHostingView(rootView: rootView)
+        self.hostingView = ClickThroughHostingView(rootView: rootView)
 
         let container = TransparentContainerView()
         container.wantsLayer = true
@@ -140,6 +148,9 @@ class NotchWindow: NSPanel {
                 self.animateWindowResize(expanded: true)
             }
             .store(in: &cancellables)
+
+        // Setup click detection immediately (don't wait for show())
+        setupClickOutsideMonitor()
     }
 
     func show() {
@@ -149,9 +160,11 @@ class NotchWindow: NSPanel {
     }
 
     private func setupClickOutsideMonitor() {
-        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        guard clickOutsideMonitor == nil else { return }
+
+        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self = self, self.viewModel.isExpanded else { return }
-            // Don't collapse if there's a pending ask question
+
             let hasAsk = self.agentManager.sessions.contains { $0.askQuestion != nil }
             if hasAsk { return }
             if !self.frame.contains(NSEvent.mouseLocation) {

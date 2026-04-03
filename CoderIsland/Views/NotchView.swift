@@ -7,7 +7,7 @@ struct IslandView: View {
     @State private var isHovered = false
     @State private var hoverTimer: Timer?
 
-    private let barColor = Color(nsColor: NSColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1))
+    private let barColor = Color.black
     // Extra padding around the shape so corners + shadow are visible
     static let inset: CGFloat = 24
 
@@ -30,14 +30,10 @@ struct IslandView: View {
                 .fill(barColor)
                 .padding(.horizontal, Self.inset)
                 .padding(.bottom, Self.inset)
-                // Shadow only on hover or expanded
+                // Shadow — black only
                 .shadow(
-                    color: (isHovered || viewModel.isExpanded) ? .white.opacity(0.2) : .clear,
-                    radius: (isHovered || viewModel.isExpanded) ? 3 : 0
-                )
-                .shadow(
-                    color: (isHovered || viewModel.isExpanded) ? .black.opacity(0.5) : .clear,
-                    radius: (isHovered || viewModel.isExpanded) ? 10 : 0, y: 4
+                    color: (isHovered || viewModel.isExpanded) ? .black.opacity(0.8) : .clear,
+                    radius: (isHovered || viewModel.isExpanded) ? 12 : 0, y: 4
                 )
         )
         .onHover { hovering in
@@ -83,28 +79,48 @@ struct IslandView: View {
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(.orange)
             } else if let first = agentManager.sessions.first {
-                ClaudePixelChar(isAnimating: first.status == .running)
+                // Check if any session has a pending ask
+                let askSession = agentManager.sessions.first(where: { $0.status == .waiting })
+                let displaySession = askSession ?? first
 
-                if first.status == .done {
-                    Text(first.taskName)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.gray)
+                Group {
+                    let isActive = displaySession.status == .running || displaySession.status == .waiting
+                    let waitingColor: Color? = displaySession.status == .waiting ? .orange : nil
+                    if displaySession.agentType == .codex {
+                        CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                    } else {
+                        ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                    }
+                }
+
+                Text(displaySession.taskName)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(displaySession.status == .done ? .gray : .white)
+                    .lineLimit(1)
+
+                if displaySession.status == .waiting {
+                    Text("Waiting for answer...")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.orange.opacity(0.8))
                         .lineLimit(1)
-                } else if let subtitle = first.subtitle {
+                } else if displaySession.status != .done, let subtitle = displaySession.subtitle {
                     Text(subtitle)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(1)
-                } else {
-                    Text(first.taskName)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.6))
                         .lineLimit(1)
                 }
 
                 Spacer()
 
-                if agentManager.sessions.count > 1 {
+                // Show ? instead of count when any session is waiting
+                let hasWaiting = agentManager.sessions.contains { $0.status == .waiting }
+                if hasWaiting {
+                    PixelStatusIcon(
+                        pixels: [(1,0),(2,0),(3,1),(2,2),(1,3),(1,5)],
+                        color: .orange
+                    )
+                    .scaleEffect(0.9)
+                } else if agentManager.sessions.count > 1 {
                     Text("\(agentManager.sessions.count)")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.7))
@@ -177,13 +193,20 @@ struct SessionCard: View {
     @State private var isHovered = false
 
     private var hasAsk: Bool {
-        viewModel.pendingAsks.contains { $0.sessionId == session.id } || session.askQuestion != nil
+        viewModel.pendingAsks.contains { $0.sessionId == session.id } || (session.status == .waiting && session.askQuestion != nil)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             AgentRowView(session: session, hasAskCard: hasAsk)
-                .onTapGesture { session.jumpToTerminal() }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    session.jumpToTerminal()
+                    if session.status == .done {
+                        session.status = .idle
+                    }
+                    viewModel.collapse()
+                }
 
             if let hookAsk = viewModel.pendingAsks.first(where: { $0.sessionId == session.id }) {
                 AskCardSwiftUI(
@@ -192,7 +215,7 @@ struct SessionCard: View {
                     onSelect: { label in viewModel.answerAsk(hookAsk.id, answer: label) },
                     userMessage: session.lastUserMessage
                 )
-            } else if session.askQuestion != nil {
+            } else if session.status == .waiting && session.askQuestion != nil {
                 AskCardSwiftUI(
                     question: session.askQuestion ?? "",
                     options: session.askOptions ?? [],
@@ -204,7 +227,11 @@ struct SessionCard: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(isHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
+                .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(hasAsk ? Color.white.opacity(0.15) : Color.clear, lineWidth: 1)
         )
         .onHover { isHovered = $0 }
     }
@@ -217,30 +244,47 @@ struct NotchShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let r = bottomRadius
+        let tr: CGFloat = 16  // top corner radius
         var path = Path()
 
-        // Top edge — flat, flush with top of rect
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        // Start at top-left, offset by top radius
+        path.move(to: CGPoint(x: rect.minX - tr, y: rect.minY))
 
-        // Right side down
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
-
-        // Bottom-right corner
+        // Top-left concave corner (curves inward from screen edge)
         path.addCurve(
-            to: CGPoint(x: rect.maxX - r, y: rect.maxY),
-            control1: CGPoint(x: rect.maxX, y: rect.maxY - r * 0.45),
-            control2: CGPoint(x: rect.maxX - r * 0.45, y: rect.maxY)
+            to: CGPoint(x: rect.minX, y: rect.minY + tr),
+            control1: CGPoint(x: rect.minX, y: rect.minY),
+            control2: CGPoint(x: rect.minX, y: rect.minY)
         )
 
-        // Bottom edge
-        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        // Left side down
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - r))
 
         // Bottom-left corner
         path.addCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - r),
-            control1: CGPoint(x: rect.minX + r * 0.45, y: rect.maxY),
-            control2: CGPoint(x: rect.minX, y: rect.maxY - r * 0.45)
+            to: CGPoint(x: rect.minX + r, y: rect.maxY),
+            control1: CGPoint(x: rect.minX, y: rect.maxY - r * 0.45),
+            control2: CGPoint(x: rect.minX + r * 0.45, y: rect.maxY)
+        )
+
+        // Bottom edge
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
+
+        // Bottom-right corner
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.maxY - r),
+            control1: CGPoint(x: rect.maxX - r * 0.45, y: rect.maxY),
+            control2: CGPoint(x: rect.maxX, y: rect.maxY - r * 0.45)
+        )
+
+        // Right side up
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + tr))
+
+        // Top-right concave corner
+        path.addCurve(
+            to: CGPoint(x: rect.maxX + tr, y: rect.minY),
+            control1: CGPoint(x: rect.maxX, y: rect.minY),
+            control2: CGPoint(x: rect.maxX, y: rect.minY)
         )
 
         path.closeSubpath()
