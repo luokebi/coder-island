@@ -47,7 +47,7 @@ class NotchWindow: NSWindow {
     private var clickOutsideMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
     private let panelWidth: CGFloat = 500
-    private let barWidth: CGFloat = 340
+    private var compactBarWidth: CGFloat = 340
     private var hostingView: ClickThroughHostingView<IslandView>!
     let viewModel: NotchWindowViewModel
 
@@ -72,14 +72,33 @@ class NotchWindow: NSWindow {
         let screen = NotchWindow.preferredScreen()
         let screenFrame = screen.frame
         let hasNotch = screen.safeAreaInsets.top > 0
+
+        // Calculate notch camera region first so compact width can adapt on notch Macs.
+        var notchWidth: CGFloat = 0
+        var notchHeight: CGFloat = 0
+        if hasNotch {
+            notchHeight = screen.safeAreaInsets.top
+            if let leftArea = screen.auxiliaryTopLeftArea,
+               let rightArea = screen.auxiliaryTopRightArea {
+                notchWidth = rightArea.minX - leftArea.maxX
+            } else {
+                notchWidth = 180  // Fallback: typical MacBook notch width in points
+            }
+
+            // Use notch width as the center text lane baseline, plus a little
+            // room on both sides for the left icon and right badge.
+            compactBarWidth = max(250, notchWidth + 80)
+        }
+
         let menuBarHeight = screenFrame.maxY - screen.visibleFrame.maxY
         let barHeight = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
 
         // Start as compact bar — window is wider/taller than content for corner + shadow visibility
         let inset = IslandView.inset
-        let windowWidth = barWidth + inset * 2
+        let windowWidth = compactBarWidth + inset * 2
         let windowHeight = barHeight + inset  // only bottom inset, top flush
-        let x = screenFrame.midX - windowWidth / 2
+        let compactHorizontalNudge: CGFloat = hasNotch ? 11 : 0
+        let x = screenFrame.midX - windowWidth / 2 + compactHorizontalNudge
         let y = screenFrame.maxY - windowHeight
         let frame = NSRect(x: x, y: y, width: windowWidth, height: windowHeight)
 
@@ -100,20 +119,7 @@ class NotchWindow: NSWindow {
         self.acceptsMouseMovedEvents = true
         self.ignoresMouseEvents = false
 
-        // Calculate notch camera region (relative to center of bar)
-        var notchWidth: CGFloat = 0
-        var notchHeight: CGFloat = 0
-        if hasNotch {
-            notchHeight = screen.safeAreaInsets.top
-            // Derive notch width from auxiliary areas
-            if let leftArea = screen.auxiliaryTopLeftArea,
-               let rightArea = screen.auxiliaryTopRightArea {
-                // Notch is the gap between left and right auxiliary areas
-                notchWidth = rightArea.minX - leftArea.maxX
-            } else {
-                notchWidth = 180  // Fallback: typical MacBook notch width in points
-            }
-        }
+        // Save notch camera region info for SwiftUI layout.
         viewModel.notchWidth = notchWidth
         viewModel.notchHeight = notchHeight
 
@@ -192,13 +198,14 @@ class NotchWindow: NSWindow {
             let fitting = sizingView.fittingSize
             targetHeight = min(fitting.height, screenFrame.height * 0.7)
         } else {
-            targetWidth = barWidth + inset * 2
+            targetWidth = compactBarWidth + inset * 2
             let barH = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
             targetHeight = barH + inset
         }
 
         let topY = screenFrame.maxY
-        let x = screenFrame.midX - targetWidth / 2
+        let compactHorizontalNudge: CGFloat = (!expanded && hasNotch) ? 11 : 0
+        let x = screenFrame.midX - targetWidth / 2 + compactHorizontalNudge
         let y = topY - targetHeight
         let newFrame = NSRect(x: x, y: y, width: targetWidth, height: targetHeight)
 

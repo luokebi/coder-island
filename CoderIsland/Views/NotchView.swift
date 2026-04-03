@@ -63,7 +63,7 @@ struct IslandView: View {
     // MARK: - Compact Bar
 
     private var compactContent: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             if agentManager.sessions.isEmpty && viewModel.pendingPermissions.isEmpty {
                 Image(systemName: "sparkles")
                     .font(.system(size: 10))
@@ -93,24 +93,29 @@ struct IslandView: View {
                     }
                 }
 
+                let centerTextWidth = viewModel.hasNotch
+                    ? max(120, viewModel.notchWidth)
+                    : 180
+
                 Text(displaySession.taskName)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(displaySession.status == .done ? .gray : .white)
                     .lineLimit(1)
+                    .frame(width: centerTextWidth, alignment: .leading)
 
-                if displaySession.status == .waiting {
+                if !viewModel.hasNotch && displaySession.status == .waiting {
                     Text("Waiting for answer...")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.orange.opacity(0.8))
                         .lineLimit(1)
-                } else if displaySession.status != .done, let subtitle = displaySession.subtitle {
+                } else if !viewModel.hasNotch && displaySession.status != .done, let subtitle = displaySession.subtitle {
                     Text(subtitle)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.white.opacity(0.6))
                         .lineLimit(1)
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 // Show ? instead of count when any session is waiting
                 let hasWaiting = agentManager.sessions.contains { $0.status == .waiting }
@@ -124,7 +129,7 @@ struct IslandView: View {
                     Text("\(agentManager.sessions.count)")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.7))
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 4)
                         .padding(.vertical, 2)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
@@ -133,10 +138,10 @@ struct IslandView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        // On notch Macs: avoid the camera area in compact mode
-        .padding(.horizontal, viewModel.hasNotch ? max(0, viewModel.notchWidth / 2 - 60) : 0)
+        // Keep only a small extra inset on notch Macs to avoid over-compressing text.
+        .padding(.horizontal, viewModel.hasNotch ? 0 : 0)
     }
 
     // MARK: - Expanded Panel
