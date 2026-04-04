@@ -6,6 +6,10 @@ struct IslandView: View {
 
     @State private var isHovered = false
     @State private var hoverTimer: Timer?
+    @State private var showControlMenu = false
+    @State private var isGearHovered = false
+    @State private var isSettingsHovered = false
+    @State private var isQuitHovered = false
 
     private let barColor = Color.black
     // Extra padding around the shape so corners + shadow are visible
@@ -14,10 +18,17 @@ struct IslandView: View {
     var body: some View {
         ZStack(alignment: .top) {
             compactContent
+                .allowsHitTesting(!viewModel.isExpanded)
+                .onHover { hovering in
+                    handleHoverChange(hovering)
+                }
                 .opacity(viewModel.isExpanded ? 0 : 1)
 
             if viewModel.isExpanded {
                 expandedContent
+                    .onHover { hovering in
+                        handleHoverChange(hovering)
+                    }
                     .transition(.opacity)
             }
         }
@@ -36,25 +47,26 @@ struct IslandView: View {
                     radius: (isHovered || viewModel.isExpanded) ? 12 : 0, y: 4
                 )
         )
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isHovered = hovering
-            }
-            hoverTimer?.invalidate()
+    }
 
-            if hovering {
-                hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                    if !viewModel.isExpanded {
-                        viewModel.toggle()
-                    }
+    private func handleHoverChange(_ hovering: Bool) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isHovered = hovering
+        }
+        hoverTimer?.invalidate()
+
+        if hovering {
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                if !viewModel.isExpanded {
+                    viewModel.toggle()
                 }
-            } else {
-                hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { _ in
-                    // Don't collapse if there's a pending ask question
-                    let hasAsk = agentManager.sessions.contains { $0.askQuestion != nil }
-                    if viewModel.isExpanded && !hasAsk {
-                        viewModel.collapse()
-                    }
+            }
+        } else {
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { _ in
+                // Don't collapse if there's a pending ask question
+                let hasAsk = agentManager.sessions.contains { $0.askQuestion != nil }
+                if viewModel.isExpanded && !hasAsk {
+                    viewModel.collapse()
                 }
             }
         }
@@ -171,6 +183,94 @@ struct IslandView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .top)
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
+                if showControlMenu {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            showControlMenu = false
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea()
+                }
+
+                VStack(alignment: .trailing, spacing: 6) {
+                    Button {
+                        showControlMenu.toggle()
+                    } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(isGearHovered ? Color.white.opacity(0.20) : Color.clear)
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white.opacity(0.95))
+                        }
+                        .frame(width: 24, height: 20)
+                        .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        isGearHovered = hovering
+                    }
+
+                    if showControlMenu {
+                        VStack(spacing: 0) {
+                            Button("Settings...") {
+                                showControlMenu = false
+                                viewModel.collapse()
+                                NotificationCenter.default.post(name: .coderIslandOpenSettings, object: nil)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(isSettingsHovered ? Color.white.opacity(0.16) : Color.clear)
+                            )
+                            .onHover { hovering in
+                                isSettingsHovered = hovering
+                            }
+
+                            Button("Quit Coder Island") {
+                                showControlMenu = false
+                                NotificationCenter.default.post(name: .coderIslandQuitApp, object: nil)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.red.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(isQuitHovered ? Color.red.opacity(0.20) : Color.clear)
+                            )
+                            .onHover { hovering in
+                                isQuitHovered = hovering
+                            }
+                        }
+                        .padding(6)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: 170, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.black.opacity(0.92))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                                )
+                        )
+                        .shadow(color: .black.opacity(0.45), radius: 12, y: 4)
+                        .padding(.top, 2)
+                    }
+                }
+            }
+            .padding(.top, viewModel.hasNotch ? 8 : 4)
+            .padding(.trailing, 12)
+        }
     }
 
     private var emptyState: some View {

@@ -13,15 +13,14 @@ class AgentManager: ObservableObject {
     @Published var sessions: [AgentSession] = []
     var onAskAppeared: (() -> Void)?
     private var scanTimer: Timer?
+    private var currentScanInterval: TimeInterval = 3.0
     private var knownSessionIds: Set<String> = []
     private let claudeDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
     private let codexDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
 
     func startMonitoring() {
         scanForSessions()
-        scanTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.scanForSessions()
-        }
+        rescheduleScanTimer(interval: 3.0)
     }
 
     func stopMonitoring() {
@@ -73,6 +72,11 @@ class AgentManager: ObservableObject {
                             self.sessions[idx].lastUpdated = Date()
                         }
 
+                        // Play completion sound only when transitioning from active -> done
+                        if session.status == .done && (oldStatus == .running || oldStatus == .waiting) {
+                            SoundManager.shared.playTaskComplete()
+                        }
+
                         // Auto-expand when a new ask appears
                         if session.askQuestion != nil && !hadAsk {
                             self.onAskAppeared?()
@@ -97,7 +101,24 @@ class AgentManager: ObservableObject {
                     if oa != ob { return oa < ob }
                     return a.lastUpdated > b.lastUpdated
                 }
+
+                // Adaptive polling:
+                // - 1s when there are active sessions (running/waiting)
+                // - 3s when everything is idle
+                let hasActiveSession = self.sessions.contains { session in
+                    session.status == .running || session.status == .waiting
+                }
+                self.rescheduleScanTimer(interval: hasActiveSession ? 1.0 : 3.0)
             }
+        }
+    }
+
+    private func rescheduleScanTimer(interval: TimeInterval) {
+        guard abs(currentScanInterval - interval) > 0.01 || scanTimer == nil else { return }
+        scanTimer?.invalidate()
+        currentScanInterval = interval
+        scanTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.scanForSessions()
         }
     }
 

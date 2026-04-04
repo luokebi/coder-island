@@ -1,83 +1,198 @@
-import AVFoundation
+import Foundation
 import AppKit
 
 class SoundManager {
+    enum Event: String {
+        case permission
+        case ask
+        case taskComplete
+    }
+
     static let shared = SoundManager()
-    private var audioEngine: AVAudioEngine?
-    private var playerNode: AVAudioPlayerNode?
+    private var lastPlayedAt: [String: Date] = [:]
+    private let minInterval: TimeInterval = 0.35
+    private var cachedNamedSounds: [String: NSSound] = [:]
+    private var cachedFileSounds: [String: NSSound] = [:]
+    private let customNamePrefix = "soundCustomName."
 
-    private init() {
-        setupAudioEngine()
-    }
-
-    private func setupAudioEngine() {
-        audioEngine = AVAudioEngine()
-        playerNode = AVAudioPlayerNode()
-        guard let engine = audioEngine, let player = playerNode else { return }
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: nil)
-        try? engine.start()
-    }
+    private init() {}
 
     private var soundEnabled: Bool {
         UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
     }
 
-    /// Play a short 8-bit style beep sequence
+    private var permissionSoundEnabled: Bool {
+        UserDefaults.standard.object(forKey: "soundPermissionEnabled") as? Bool ?? true
+    }
+
+    private var askSoundEnabled: Bool {
+        UserDefaults.standard.object(forKey: "soundAskEnabled") as? Bool ?? true
+    }
+
+    private var taskDoneSoundEnabled: Bool {
+        UserDefaults.standard.object(forKey: "soundTaskDoneEnabled") as? Bool ?? true
+    }
+
+    private var appSupportDir: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/CoderIsland", isDirectory: true)
+    }
+
+    private var customSoundsDir: URL {
+        appSupportDir.appendingPathComponent("SoundPacks/Custom", isDirectory: true)
+    }
+
+    func customSoundName(for event: Event) -> String? {
+        UserDefaults.standard.string(forKey: customNamePrefix + event.rawValue)
+    }
+
+    func setCustomSound(for event: Event, from sourceURL: URL) throws {
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { sourceURL.stopAccessingSecurityScopedResource() }
+        }
+
+        let fm = FileManager.default
+        try fm.createDirectory(at: customSoundsDir, withIntermediateDirectories: true)
+        removeExistingCustomFile(for: event)
+
+        let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension
+        let targetURL = customSoundsDir.appendingPathComponent("\(event.rawValue).\(ext)")
+        try fm.copyItem(at: sourceURL, to: targetURL)
+
+        UserDefaults.standard.set(sourceURL.lastPathComponent, forKey: customNamePrefix + event.rawValue)
+        cachedFileSounds.removeAll()
+    }
+
+    func clearCustomSound(for event: Event) {
+        removeExistingCustomFile(for: event)
+        UserDefaults.standard.removeObject(forKey: customNamePrefix + event.rawValue)
+        cachedFileSounds.removeAll()
+    }
+
     func playAgentStarted() {
         guard soundEnabled else { return }
-        play8BitTone(frequencies: [440, 554, 659], duration: 0.08)
+        playSound(
+            key: "agentStarted",
+            preferredNames: ["Pop", "Funk", "Tink"],
+            customEvent: nil
+        )
     }
 
     func playTaskComplete() {
-        guard soundEnabled else { return }
-        play8BitTone(frequencies: [523, 659, 784, 1047], duration: 0.1)
+        guard soundEnabled, taskDoneSoundEnabled else { return }
+        playSound(
+            key: "taskComplete",
+            preferredNames: ["Glass", "Hero", "Ping"],
+            customEvent: .taskComplete
+        )
     }
 
     func playPermissionNeeded() {
-        guard soundEnabled else { return }
-        play8BitTone(frequencies: [880, 660, 880], duration: 0.12)
+        guard soundEnabled, permissionSoundEnabled else { return }
+        playSound(
+            key: "permission",
+            preferredNames: ["Submarine", "Basso", "Ping"],
+            customEvent: .permission
+        )
+    }
+
+    func playAskQuestion() {
+        guard soundEnabled, askSoundEnabled else { return }
+        playSound(
+            key: "ask",
+            preferredNames: ["Ping", "Tink", "Pop"],
+            customEvent: .ask
+        )
     }
 
     func playError() {
         guard soundEnabled else { return }
-        play8BitTone(frequencies: [330, 220], duration: 0.15)
+        playSound(
+            key: "error",
+            preferredNames: ["Basso", "Submarine", "Sosumi"],
+            customEvent: nil
+        )
     }
 
-    /// Generate and play square-wave tones (classic 8-bit sound)
-    private func play8BitTone(frequencies: [Double], duration: Float) {
-        guard let engine = audioEngine, let player = playerNode else { return }
+    func playPreview(for event: Event) {
+        switch event {
+        case .permission:
+            playSound(
+                key: "preview.permission",
+                preferredNames: ["Submarine", "Basso", "Ping"],
+                customEvent: .permission
+            )
+        case .ask:
+            playSound(
+                key: "preview.ask",
+                preferredNames: ["Ping", "Tink", "Pop"],
+                customEvent: .ask
+            )
+        case .taskComplete:
+            playSound(
+                key: "preview.taskComplete",
+                preferredNames: ["Glass", "Hero", "Ping"],
+                customEvent: .taskComplete
+            )
+        }
+    }
 
-        let sampleRate: Double = 44100
-        let samplesPerTone = Int(sampleRate * Double(duration))
-        let totalSamples = samplesPerTone * frequencies.count
+    private func playSound(key: String, preferredNames: [String], customEvent: Event?) {
+        let now = Date()
+        if let last = lastPlayedAt[key], now.timeIntervalSince(last) < minInterval {
+            return
+        }
+        lastPlayedAt[key] = now
 
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(totalSamples)) else {
+        if let event = customEvent, let sound = loadCustomSound(for: event) {
+            sound.play()
             return
         }
 
-        buffer.frameLength = AVAudioFrameCount(totalSamples)
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-
-        let amplitude: Float = 0.15
-
-        for (i, freq) in frequencies.enumerated() {
-            let offset = i * samplesPerTone
-            for sample in 0..<samplesPerTone {
-                let phase = Double(sample) / sampleRate * freq
-                // Square wave for that 8-bit sound
-                let value: Float = sin(2.0 * .pi * phase) > 0 ? amplitude : -amplitude
-                // Apply fade envelope to avoid clicks
-                let envelope = min(Float(sample) / 200.0, Float(samplesPerTone - sample) / 200.0, 1.0)
-                channelData[offset + sample] = value * envelope
+        for name in preferredNames {
+            if let sound = loadNamedSound(name: name) {
+                sound.play()
+                return
             }
         }
+        NSSound.beep()
+    }
 
-        if !engine.isRunning {
-            try? engine.start()
+    private func loadNamedSound(name: String) -> NSSound? {
+        if let cached = cachedNamedSounds[name] {
+            return cached
         }
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-        player.play()
+        guard let sound = NSSound(named: NSSound.Name(name)) else { return nil }
+        cachedNamedSounds[name] = sound
+        return sound
+    }
+
+    private func removeExistingCustomFile(for event: Event) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: customSoundsDir, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for file in files where file.lastPathComponent.hasPrefix(event.rawValue + ".") {
+            try? fm.removeItem(at: file)
+        }
+    }
+
+    private func customSoundURL(for event: Event) -> URL? {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: customSoundsDir, includingPropertiesForKeys: nil) else {
+            return nil
+        }
+        return files.first(where: { $0.lastPathComponent.hasPrefix(event.rawValue + ".") })
+    }
+
+    private func loadCustomSound(for event: Event) -> NSSound? {
+        guard let url = customSoundURL(for: event) else { return nil }
+        if let cached = cachedFileSounds[url.path] {
+            return cached
+        }
+        guard let sound = NSSound(contentsOf: url, byReference: true) else { return nil }
+        cachedFileSounds[url.path] = sound
+        return sound
     }
 }

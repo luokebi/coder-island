@@ -248,6 +248,7 @@ class NotchWindowViewModel: ObservableObject {
 
     func addPermission(_ request: PermissionRequest) {
         pendingPermissions.append(request)
+        SoundManager.shared.playPermissionNeeded()
         if !isExpanded {
             toggle() // Auto-expand on permission request
         }
@@ -256,6 +257,7 @@ class NotchWindowViewModel: ObservableObject {
 
     func addAsk(_ request: AskRequest) {
         pendingAsks.append(request)
+        SoundManager.shared.playAskQuestion()
         if !isExpanded {
             toggle()
         }

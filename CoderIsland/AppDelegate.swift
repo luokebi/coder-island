@@ -3,15 +3,13 @@ import SwiftUI
 import ApplicationServices
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
     private var islandWindow: NotchWindow?
     private let agentManager = AgentManager()
-    private var statusMenu: NSMenu?
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         requestAccessibilityPermissionIfNeeded()
-        setupStatusItem()
+        registerIslandActions()
         agentManager.startMonitoring()
         showIsland()
         startHookServer()
@@ -29,24 +27,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         debugLog("[Accessibility] prompted trusted=\(prompted)")
     }
 
-    private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "island.fill", accessibilityDescription: "Coder Island")
-                ?? createPixelIcon()
-            button.action = #selector(handleStatusItemClick)
-            button.target = self
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        }
-
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit Coder Island", action: #selector(quitApp), keyEquivalent: "q"))
-        self.statusMenu = menu
-    }
-
     private func showIsland() {
         let window = NotchWindow(agentManager: agentManager)
         window.show()
@@ -54,25 +34,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Auto-expand when Claude asks a question
         agentManager.onAskAppeared = { [weak self] in
+            SoundManager.shared.playAskQuestion()
             guard let vm = self?.islandWindow?.viewModel, !vm.isExpanded else { return }
             vm.toggle()
         }
     }
 
-    @objc private func handleStatusItemClick() {
-        guard let event = NSApp.currentEvent else { return }
-
-        if event.type == .rightMouseUp {
-            if let menu = statusMenu {
-                statusItem.menu = menu
-                statusItem.button?.performClick(nil)
-                DispatchQueue.main.async { self.statusItem.menu = nil }
-            }
-            return
-        }
-
-        // Left click: toggle expand/collapse
-        islandWindow?.viewModel.toggle()
+    private func registerIslandActions() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(openSettings),
+            name: .coderIslandOpenSettings,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(quitApp),
+            name: .coderIslandQuitApp,
+            object: nil
+        )
     }
 
     private func startHookServer() {
@@ -89,6 +69,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
+        islandWindow?.viewModel.collapse()
+
         if let window = settingsWindow {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -96,12 +78,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 340),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 600),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "Coder Island Settings"
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = NSColor.black
         window.contentView = NSHostingView(rootView: SettingsView())
         window.center()
         window.isReleasedWhenClosed = false
@@ -111,27 +95,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitApp() {
-        NSApp.terminate(nil)
-    }
+        islandWindow?.viewModel.collapse()
 
-    private func createPixelIcon() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.systemGreen.setFill()
-            let path = NSBezierPath()
-            path.appendRoundedRect(
-                NSRect(x: 2, y: 4, width: 14, height: 6),
-                xRadius: 2, yRadius: 2
-            )
-            path.fill()
-            NSColor.systemBrown.setFill()
-            NSBezierPath(rect: NSRect(x: 8, y: 10, width: 2, height: 4)).fill()
-            NSColor.systemGreen.setFill()
-            let leaf = NSBezierPath(ovalIn: NSRect(x: 5, y: 13, width: 8, height: 4))
-            leaf.fill()
-            return true
+        let alert = NSAlert()
+        alert.messageText = "Quit Coder Island?"
+        alert.informativeText = "This will close Coder Island and stop monitoring sessions."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            NSApp.terminate(nil)
         }
-        image.isTemplate = true
-        return image
     }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+}
+
+extension Notification.Name {
+    static let coderIslandOpenSettings = Notification.Name("coderIslandOpenSettings")
+    static let coderIslandQuitApp = Notification.Name("coderIslandQuitApp")
 }
