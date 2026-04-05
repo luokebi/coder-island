@@ -8,12 +8,27 @@ class SoundManager {
         case taskComplete
     }
 
+    enum Preset: String, CaseIterable, Identifiable {
+        case system
+        case mario
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .system: return "System"
+            case .mario: return "Mario"
+            }
+        }
+    }
+
     static let shared = SoundManager()
     private var lastPlayedAt: [String: Date] = [:]
     private let minInterval: TimeInterval = 0.35
     private var cachedNamedSounds: [String: NSSound] = [:]
     private var cachedFileSounds: [String: NSSound] = [:]
     private let customNamePrefix = "soundCustomName."
+    private let presetKey = "soundPreset"
 
     private init() {}
 
@@ -40,6 +55,24 @@ class SoundManager {
 
     private var customSoundsDir: URL {
         appSupportDir.appendingPathComponent("SoundPacks/Custom", isDirectory: true)
+    }
+
+    var selectedPreset: Preset {
+        let raw = UserDefaults.standard.string(forKey: presetKey) ?? ""
+        return Preset(rawValue: raw) ?? .system
+    }
+
+    func effectiveSoundLabel(for event: Event) -> String {
+        if let customName = customSoundName(for: event), !customName.isEmpty {
+            return "Custom: \(customName)"
+        }
+
+        switch selectedPreset {
+        case .system:
+            return "Preset: System"
+        case .mario:
+            return "Preset: Mario"
+        }
     }
 
     func customSoundName(for event: Event) -> String? {
@@ -150,6 +183,11 @@ class SoundManager {
             return
         }
 
+        if let event = customEvent, let sound = loadPresetSound(for: event) {
+            sound.play()
+            return
+        }
+
         for name in preferredNames {
             if let sound = loadNamedSound(name: name) {
                 sound.play()
@@ -188,6 +226,39 @@ class SoundManager {
 
     private func loadCustomSound(for event: Event) -> NSSound? {
         guard let url = customSoundURL(for: event) else { return nil }
+        if let cached = cachedFileSounds[url.path] {
+            return cached
+        }
+        guard let sound = NSSound(contentsOf: url, byReference: true) else { return nil }
+        cachedFileSounds[url.path] = sound
+        return sound
+    }
+
+    private func loadPresetSound(for event: Event) -> NSSound? {
+        switch selectedPreset {
+        case .system:
+            return nil
+        case .mario:
+            switch event {
+            case .permission:
+                return loadBundledSound(fileName: "mario_permission.mp3")
+            case .ask:
+                return loadBundledSound(fileName: "mario_question.mp3")
+            case .taskComplete:
+                return loadBundledSound(fileName: "mario_complete.mp3")
+            }
+        }
+    }
+
+    private func loadBundledSound(fileName: String) -> NSSound? {
+        guard !fileName.isEmpty else { return nil }
+        let name = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+
+        let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "sounds")
+            ?? Bundle.main.url(forResource: name, withExtension: ext)
+
+        guard let url else { return nil }
         if let cached = cachedFileSounds[url.path] {
             return cached
         }

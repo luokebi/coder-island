@@ -217,36 +217,48 @@ struct IslandView: View {
 
                     if showControlMenu {
                         VStack(spacing: 0) {
-                            Button("Settings...") {
+                            Button {
                                 showControlMenu = false
                                 viewModel.collapse()
                                 NotificationCenter.default.post(name: .coderIslandOpenSettings, object: nil)
+                            } label: {
+                                HStack(spacing: 0) {
+                                    Text("Settings...")
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(isSettingsHovered ? Color.white.opacity(0.16) : Color.clear)
+                                )
                             }
                             .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(isSettingsHovered ? Color.white.opacity(0.16) : Color.clear)
-                            )
                             .onHover { hovering in
                                 isSettingsHovered = hovering
                             }
 
-                            Button("Quit Coder Island") {
+                            Button {
                                 showControlMenu = false
                                 NotificationCenter.default.post(name: .coderIslandQuitApp, object: nil)
+                            } label: {
+                                HStack(spacing: 0) {
+                                    Text("Quit Coder Island")
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(isQuitHovered ? Color.red.opacity(0.20) : Color.clear)
+                                )
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(.red.opacity(0.9))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(isQuitHovered ? Color.red.opacity(0.20) : Color.clear)
-                            )
                             .onHover { hovering in
                                 isQuitHovered = hovering
                             }
