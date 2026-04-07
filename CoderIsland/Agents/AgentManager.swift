@@ -187,6 +187,19 @@ class AgentManager: ObservableObject {
                                self.sessions[idx].acknowledgedCompletionMarker == incomingCompletionMarker {
                                 return .idle
                             }
+                            // Stickiness: once the Stop hook (or the prior jsonl
+                            // end_turn detection) marks us .justFinished, don't
+                            // let a subsequent scan regress us to .running just
+                            // because the jsonl end_turn hasn't been flushed to
+                            // disk yet. Only UserPromptSubmit (a real new turn)
+                            // — handled in applyHookEvent — can bring us back
+                            // to .running. This prevents a double completion
+                            // sound when the Stop hook fires between the final
+                            // tool_result and the end_turn disk flush.
+                            if self.sessions[idx].status == .justFinished
+                                && session.status == .running {
+                                return .justFinished
+                            }
                             return session.status
                         }()
                         self.sessions[idx].status = effectiveStatus

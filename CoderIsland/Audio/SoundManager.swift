@@ -105,6 +105,7 @@ class SoundManager {
 
     func playAgentStarted() {
         guard soundEnabled else { return }
+        SoundManager.traceSoundPlay("agentStarted")
         playSound(
             key: "agentStarted",
             preferredNames: ["Pop", "Funk", "Tink"],
@@ -112,8 +113,9 @@ class SoundManager {
         )
     }
 
-    func playTaskComplete() {
+    func playTaskComplete(context: String = "") {
         guard soundEnabled, taskDoneSoundEnabled else { return }
+        SoundManager.traceSoundPlay("taskComplete \(context)")
         playSound(
             key: "taskComplete",
             preferredNames: ["Glass", "Hero", "Ping"],
@@ -123,6 +125,7 @@ class SoundManager {
 
     func playPermissionNeeded() {
         guard soundEnabled, permissionSoundEnabled else { return }
+        SoundManager.traceSoundPlay("permissionNeeded")
         playSound(
             key: "permission",
             preferredNames: ["Submarine", "Basso", "Ping"],
@@ -132,6 +135,7 @@ class SoundManager {
 
     func playAskQuestion() {
         guard soundEnabled, askSoundEnabled else { return }
+        SoundManager.traceSoundPlay("askQuestion")
         playSound(
             key: "ask",
             preferredNames: ["Ping", "Tink", "Pop"],
@@ -141,11 +145,36 @@ class SoundManager {
 
     func playError() {
         guard soundEnabled else { return }
+        SoundManager.traceSoundPlay("error")
         playSound(
             key: "error",
             preferredNames: ["Basso", "Submarine", "Sosumi"],
             customEvent: nil
         )
+    }
+
+    /// Append one line per sound play to ~/Library/Logs/CoderIsland/sound-trace.log
+    /// so we can tell which sound effect fires when. Also captures a stack
+    /// trace so we know the call site when a mystery sound plays.
+    private static func traceSoundPlay(_ kind: String) {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/CoderIsland", isDirectory: true)
+            .appendingPathComponent("sound-trace.log")
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        // Short callsite from the stack (skip this func + its caller).
+        let stack = Thread.callStackSymbols.dropFirst(2).prefix(3).joined(separator: " <- ")
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let line = "\(ts) \(kind)\n  \(stack)\n"
+        guard let data = line.data(using: .utf8),
+              let handle = try? FileHandle(forWritingTo: url) else { return }
+        defer { try? handle.close() }
+        try? handle.seekToEnd()
+        try? handle.write(contentsOf: data)
     }
 
     func playPreview(for event: Event) {

@@ -192,6 +192,14 @@ class HookServer {
                 ?? (json["error_details"] as? String)
                 ?? (json["last_assistant_message"] as? String)
 
+            // Lightweight ingress log: one line per event to confirm arrival.
+            HookServer.traceEventIngress(
+                eventName: eventName,
+                sessionId: sessionId,
+                agentId: agentId,
+                toolName: toolName
+            )
+
             // Respond right away so the shell script / Claude Code unblock.
             sendResponse(connection: connection, statusCode: 200, body: "{}")
 
@@ -351,6 +359,36 @@ class HookServer {
             let joined = scalars.prefix(3).joined(separator: " ")
             return joined.isEmpty ? tool : "\(tool) \(joined)"
         }
+    }
+
+    /// Lightweight one-line log of every lifecycle event arriving at /event.
+    /// Lets us count Pre/Post/Stop/UserPromptSubmit actually received.
+    static func traceEventIngress(
+        eventName: String,
+        sessionId: String,
+        agentId: String?,
+        toolName: String?
+    ) {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/CoderIsland", isDirectory: true)
+            .appendingPathComponent("hook-ingress.log")
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let sid = String(sessionId.prefix(8))
+        let agent = agentId.map { " agent=\($0.prefix(8))" } ?? ""
+        let tool = toolName.map { " tool=\($0)" } ?? ""
+        let line = "\(ts) \(eventName) sid=\(sid)\(agent)\(tool)\n"
+        guard let data = line.data(using: .utf8),
+              let handle = try? FileHandle(forWritingTo: url) else { return }
+        defer { try? handle.close() }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {}
     }
 
     /// Append raw hook payloads to ~/Library/Logs/CoderIsland/hook-payloads.log for inspection.

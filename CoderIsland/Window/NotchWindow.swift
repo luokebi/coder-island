@@ -12,6 +12,20 @@ class TransparentContainerView: NSView {
     override func draw(_ dirtyRect: NSRect) { /* draw nothing */ }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// Rect in the container's own coordinates where clicks should land on
+    /// our content. Points outside are click-through to the window below.
+    /// Return `nil` to allow hits anywhere (default / expanded state).
+    var allowedHitRectProvider: (() -> NSRect?)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // `point` arrives in the superview's coordinate space; convert to ours.
+        let local = convert(point, from: superview)
+        if let allowed = allowedHitRectProvider?(), !allowed.contains(local) {
+            return nil
+        }
+        return super.hitTest(point)
+    }
+
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         clearBackgrounds(of: subview)
@@ -129,6 +143,24 @@ class NotchWindow: NSWindow {
         let container = TransparentContainerView()
         container.wantsLayer = true
         container.layer?.backgroundColor = .clear
+
+        // When collapsed, restrict clicks to the visible bar rect so the
+        // transparent inset padding around the notch (used only for shadow
+        // headroom) doesn't block clicks to whatever window is underneath.
+        // When expanded, allow the whole content area (closure returns nil).
+        let insetValue = IslandView.inset
+        container.allowedHitRectProvider = { [weak self, weak container] in
+            guard let self = self, let container = container else { return nil }
+            if self.viewModel.isExpanded { return nil }
+            // Visible bar: top is flush to window top, has side+bottom insets.
+            let b = container.bounds
+            return NSRect(
+                x: b.minX + insetValue,
+                y: b.minY + insetValue,
+                width: b.width - insetValue * 2,
+                height: b.height - insetValue
+            )
+        }
 
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(hostingView)

@@ -106,39 +106,47 @@ struct IslandView: View {
                     }
                 }
 
-                let centerTextWidth = viewModel.hasNotch
-                    ? max(120, viewModel.notchWidth)
-                    : 180
-
+                // Task name: intrinsic width, capped so a very long name
+                // doesn't starve the subtitle. layoutPriority(1) means the
+                // name survives truncation before the subtitle does.
                 Text(displaySession.taskName)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(displaySession.status.isRecentlyFinished ? .gray : .white)
                     .lineLimit(1)
-                    .frame(width: centerTextWidth, alignment: .leading)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
 
-                if !viewModel.hasNotch && displayHasPermission {
-                    Text("Permission needed")
+                // Subtitle: hidden on notch Macs (it would render behind the
+                // camera cutout anyway). On non-notch Macs it expands to fill
+                // all remaining width, text right-aligned so short subtitles
+                // sit near the indicator and long ones get the full gap.
+                let subtitleInfo: (text: String, color: Color)? = {
+                    if displayHasPermission {
+                        return ("Permission needed", .orange.opacity(0.85))
+                    }
+                    if displaySession.status == .waiting {
+                        return ("Waiting for answer...", .orange.opacity(0.8))
+                    }
+                    if displaySession.status.isRecentlyFinished {
+                        return ("Just finished", Color(nsColor: .systemGreen).opacity(0.85))
+                    }
+                    if let subtitle = displaySession.subtitle, !subtitle.isEmpty {
+                        return (subtitle, .white.opacity(0.6))
+                    }
+                    return nil
+                }()
+
+                if !viewModel.hasNotch, let sub = subtitleInfo {
+                    Text(sub.text)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.orange.opacity(0.85))
+                        .foregroundColor(sub.color)
                         .lineLimit(1)
-                } else if !viewModel.hasNotch && displaySession.status == .waiting {
-                    Text("Waiting for answer...")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.orange.opacity(0.8))
-                        .lineLimit(1)
-                } else if !viewModel.hasNotch && displaySession.status.isRecentlyFinished {
-                    Text("Just finished")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Color(nsColor: .systemGreen).opacity(0.85))
-                        .lineLimit(1)
-                } else if !viewModel.hasNotch && !displaySession.status.isRecentlyFinished, let subtitle = displaySession.subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.6))
-                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.leading, 8)
+                } else {
+                    Spacer(minLength: 0)
                 }
-
-                Spacer(minLength: 0)
 
                 // Right indicator: ! for pending permission, ? for ask/waiting, count otherwise
                 let hasWaiting = agentManager.sessions.contains { $0.status == .waiting }
