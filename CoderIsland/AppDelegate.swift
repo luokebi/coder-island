@@ -66,6 +66,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         server.onAskQuestion = { [weak self] request in
             self?.islandWindow?.viewModel.addAsk(request)
         }
+
+        // Keep hook scripts & settings.json in sync with the current app version.
+        // If the user has the toggle on, re-run install() so any script/matcher
+        // changes from an app update take effect without manual toggling.
+        if UserDefaults.standard.bool(forKey: "askHooksEnabled") {
+            HookInstaller.shared.install()
+        }
     }
 
     @objc private func openSettings() {

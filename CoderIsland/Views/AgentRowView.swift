@@ -3,14 +3,15 @@ import SwiftUI
 struct AgentRowView: View {
     @ObservedObject var session: AgentSession
     var hasAskCard: Bool = false
+    var hasPendingPermission: Bool = false
     @State private var isHovered = false
 
     private var isActive: Bool {
-        session.status == .running || session.status == .waiting
+        session.status.isActive || hasPendingPermission
     }
 
     private var isDimmed: Bool {
-        session.status == .done || session.status == .idle
+        session.status.isDimmedInUI && !hasPendingPermission
     }
 
     var body: some View {
@@ -66,7 +67,7 @@ struct AgentRowView: View {
         HStack(spacing: 3) {
             // Agent character
             Group {
-                let waitingColor: Color? = session.status == .waiting ? .orange : nil
+                let waitingColor: Color? = (session.status == .waiting || hasPendingPermission) ? .orange : nil
                 switch session.agentType {
                 case .claudeCode:
                     ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
@@ -87,7 +88,7 @@ struct AgentRowView: View {
     @ViewBuilder
     private var statusEmoji: some View {
         let color: Color = {
-            if session.status == .waiting {
+            if hasPendingPermission || session.status == .waiting {
                 return Color.orange
             }
             return isActive
@@ -95,6 +96,11 @@ struct AgentRowView: View {
                 : Color(red: 0.85, green: 0.52, blue: 0.35)
         }()
         let pixels: [(Int, Int)] = {
+            // Permission pending overrides normal status with "!"
+            if hasPendingPermission {
+                return [(1,0),(1,1),(1,2),(1,3),
+                        (1,5)]
+            }
             switch session.status {
             case .running:
                 // ▶ play arrow
@@ -112,13 +118,13 @@ struct AgentRowView: View {
                 // ! exclamation
                 return [(1,0),(1,1),(1,2),(1,3),
                         (1,5)]
-            case .done, .idle:
+            case .justFinished, .done, .idle:
                 // ▌▌ double cursor blink bar (adjacent columns)
                 return [(0,0),(0,1),(0,2),(0,3),(0,4),(0,5),
                         (1,0),(1,1),(1,2),(1,3),(1,4),(1,5)]
             }
         }()
-        PixelStatusIcon(pixels: pixels, color: color, blink: session.status == .idle || session.status == .done)
+        PixelStatusIcon(pixels: pixels, color: color, blink: isDimmed)
             .opacity(isDimmed ? 0.5 : 1)
     }
 
@@ -137,7 +143,19 @@ struct AgentRowView: View {
             Text(session.subtitle ?? "Waiting for input...")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.orange)
-        case .done, .idle:
+        case .justFinished, .done:
+            HStack(spacing: 6) {
+                Text("Just finished")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color(nsColor: .systemGreen))
+                if let assistantMsg = session.lastAssistantMessage {
+                    Text(assistantMsg)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray.opacity(0.6))
+                        .lineLimit(1)
+                }
+            }
+        case .idle:
             if let assistantMsg = session.lastAssistantMessage {
                 Text(assistantMsg)
                     .font(.system(size: 11))

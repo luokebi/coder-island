@@ -25,22 +25,39 @@ class HookInstaller {
         let permissionContent = """
         #!/bin/bash
         # Coder Island - Permission Hook
+        LOG="$HOME/Library/Logs/CoderIsland/permission-hook.log"
+        mkdir -p "$(dirname "$LOG")"
+        {
+          echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+          echo "pid=$$"
+        } >> "$LOG"
+
         INPUT=$(cat)
+        echo "INPUT: $INPUT" >> "$LOG"
+
+        # Skip AskUserQuestion — handled by the separate ask hook
+        TOOL=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('toolName', d.get('tool_name','')))" 2>/dev/null)
+        echo "TOOL=$TOOL" >> "$LOG"
+        if [ "$TOOL" = "AskUserQuestion" ]; then
+            echo "skip (ask)" >> "$LOG"
+            exit 0
+        fi
+
+        # The HookServer builds the full hook output JSON for us — we just echo it verbatim.
         RESPONSE=$(echo "$INPUT" | curl -s -X POST http://localhost:\(HookServer.port)/permission \\
             -H "Content-Type: application/json" \\
             -d @- \\
-            --max-time 60 2>/dev/null)
+            --max-time 600 2>>"$LOG")
+        CURL_EXIT=$?
+        echo "curl_exit=$CURL_EXIT" >> "$LOG"
+        echo "RESPONSE: $RESPONSE" >> "$LOG"
 
-        if [ $? -eq 0 ] && [ -n "$RESPONSE" ]; then
+        if [ $CURL_EXIT -eq 0 ] && [ -n "$RESPONSE" ]; then
             echo "$RESPONSE"
-            DECISION=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('permissionDecision','allow'))" 2>/dev/null)
-            if [ "$DECISION" = "deny" ]; then
-                exit 2
-            fi
-            exit 0
         else
-            exit 0
+            echo "no response; letting claude prompt normally" >> "$LOG"
         fi
+        exit 0
         """
 
         // AskUserQuestion hook: intercepts elicitation, sends to app, returns user's choice
@@ -111,9 +128,15 @@ class HookInstaller {
             "timeout": 300
         ]
 
+        let permissionHook: [String: Any] = [
+            "type": "command",
+            "command": hookDir.appendingPathComponent(permissionScript).path,
+            "timeout": 300
+        ]
+
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
-        // PermissionRequest with matcher for AskUserQuestion
+        // PermissionRequest: ask hook for AskUserQuestion, permission hook for everything else.
         var permEntries = hooks["PermissionRequest"] as? [[String: Any]] ?? []
         permEntries.removeAll { entry in
             (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
@@ -122,6 +145,10 @@ class HookInstaller {
             "matcher": "AskUserQuestion",
             "hooks": [askHook]
         ], at: 0)
+        permEntries.insert([
+            "matcher": "Bash|Edit|MultiEdit|Write|NotebookEdit|Read|Glob|Grep|Task|WebFetch|WebSearch",
+            "hooks": [permissionHook]
+        ], at: 1)
         hooks["PermissionRequest"] = permEntries
         // Clean up old PreToolUse and Elicitation entries
         for key in ["PreToolUse", "Elicitation"] {
@@ -151,19 +178,14 @@ class HookInstaller {
         }
 
         if var hooks = settings["hooks"] as? [String: Any] {
-            // Remove our hooks from PreToolUse
-            if var entries = hooks["PreToolUse"] as? [[String: Any]] {
-                entries.removeAll { entry in
-                    (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
+            // Remove our hooks from PermissionRequest, PreToolUse, Elicitation
+            for key in ["PermissionRequest", "PreToolUse", "Elicitation"] {
+                if var entries = hooks[key] as? [[String: Any]] {
+                    entries.removeAll { entry in
+                        (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
+                    }
+                    if entries.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = entries }
                 }
-                if entries.isEmpty { hooks.removeValue(forKey: "PreToolUse") } else { hooks["PreToolUse"] = entries }
-            }
-            // Remove from Elicitation
-            if var entries = hooks["Elicitation"] as? [[String: Any]] {
-                entries.removeAll { entry in
-                    (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
-                }
-                if entries.isEmpty { hooks.removeValue(forKey: "Elicitation") } else { hooks["Elicitation"] = entries }
             }
 
             if hooks.isEmpty { settings.removeValue(forKey: "hooks") } else { settings["hooks"] = hooks }

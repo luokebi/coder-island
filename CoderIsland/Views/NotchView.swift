@@ -84,21 +84,21 @@ struct IslandView: View {
                 Text("No agents")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.gray)
-            } else if !viewModel.pendingPermissions.isEmpty {
-                Circle()
-                    .fill(Color.orange)
-                    .frame(width: 8, height: 8)
-                Text("\(viewModel.pendingPermissions.count) permission")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.orange)
             } else if let first = agentManager.sessions.first {
-                // Check if any session has a pending ask
+                // Priority for what to surface in the compact bar:
+                // 1) session with a pending permission (hook-based)
+                // 2) session that's waiting (ask/permission via jsonl fallback)
+                // 3) first session
+                let permSession = agentManager.sessions.first { s in
+                    viewModel.pendingPermissions.contains { $0.sessionId == s.id }
+                }
                 let askSession = agentManager.sessions.first(where: { $0.status == .waiting })
-                let displaySession = askSession ?? first
+                let displaySession = permSession ?? askSession ?? first
+                let displayHasPermission = permSession != nil && displaySession.id == permSession?.id
 
                 Group {
-                    let isActive = displaySession.status == .running || displaySession.status == .waiting
-                    let waitingColor: Color? = displaySession.status == .waiting ? .orange : nil
+                    let isActive = displaySession.status == .running || displaySession.status == .waiting || displayHasPermission
+                    let waitingColor: Color? = (displaySession.status == .waiting || displayHasPermission) ? .orange : nil
                     if displaySession.agentType == .codex {
                         CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
                     } else {
@@ -112,16 +112,26 @@ struct IslandView: View {
 
                 Text(displaySession.taskName)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundColor(displaySession.status == .done ? .gray : .white)
+                    .foregroundColor(displaySession.status.isRecentlyFinished ? .gray : .white)
                     .lineLimit(1)
                     .frame(width: centerTextWidth, alignment: .leading)
 
-                if !viewModel.hasNotch && displaySession.status == .waiting {
+                if !viewModel.hasNotch && displayHasPermission {
+                    Text("Permission needed")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.orange.opacity(0.85))
+                        .lineLimit(1)
+                } else if !viewModel.hasNotch && displaySession.status == .waiting {
                     Text("Waiting for answer...")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.orange.opacity(0.8))
                         .lineLimit(1)
-                } else if !viewModel.hasNotch && displaySession.status != .done, let subtitle = displaySession.subtitle {
+                } else if !viewModel.hasNotch && displaySession.status.isRecentlyFinished {
+                    Text("Just finished")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Color(nsColor: .systemGreen).opacity(0.85))
+                        .lineLimit(1)
+                } else if !viewModel.hasNotch && !displaySession.status.isRecentlyFinished, let subtitle = displaySession.subtitle {
                     Text(subtitle)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.white.opacity(0.6))
@@ -130,9 +140,16 @@ struct IslandView: View {
 
                 Spacer(minLength: 0)
 
-                // Show ? instead of count when any session is waiting
+                // Right indicator: ! for pending permission, ? for ask/waiting, count otherwise
                 let hasWaiting = agentManager.sessions.contains { $0.status == .waiting }
-                if hasWaiting {
+                let hasAnyPermission = !viewModel.pendingPermissions.isEmpty
+                if hasAnyPermission {
+                    PixelStatusIcon(
+                        pixels: [(1,0),(1,1),(1,2),(1,3),(1,5)],
+                        color: .orange
+                    )
+                    .scaleEffect(0.9)
+                } else if hasWaiting {
                     PixelStatusIcon(
                         pixels: [(1,0),(2,0),(3,1),(2,2),(1,3),(1,5)],
                         color: .orange
@@ -159,24 +176,36 @@ struct IslandView: View {
 
     // MARK: - Expanded Panel
 
+    private var orphanPermissions: [PermissionRequest] {
+        let activeSessionIds = Set(agentManager.sessions.map(\.id))
+        return viewModel.pendingPermissions.filter { !activeSessionIds.contains($0.sessionId) }
+    }
+
+    @ViewBuilder
+    private func orphanPermissionBanner(_ req: PermissionRequest) -> some View {
+        PermissionBannerView(
+            request: req,
+            onAllow: { viewModel.allowPermission(req.id) },
+            onAllowAlways: { viewModel.allowPermissionAlways(req.id) },
+            onDeny: { viewModel.denyPermission(req.id) }
+        )
+    }
+
     private var expandedContent: some View {
         VStack(spacing: 4) {
             Spacer().frame(height: topReservedSpace)
 
-            // Hook-based permission requests
-            ForEach(viewModel.pendingPermissions) { req in
-                PermissionBannerView(
-                    request: req,
-                    onAllow: { viewModel.allowPermission(req.id) },
-                    onDeny: { viewModel.denyPermission(req.id) }
-                )
+            // Orphan permission banners: requests whose sessionId doesn't match any
+            // active session are rendered at the top so they're not lost.
+            ForEach(orphanPermissions) { req in
+                orphanPermissionBanner(req)
             }
 
             if agentManager.sessions.isEmpty && viewModel.pendingPermissions.isEmpty && viewModel.pendingAsks.isEmpty {
                 emptyState
             } else {
                 ForEach(agentManager.sessions) { session in
-                    SessionCard(session: session, viewModel: viewModel)
+                    SessionCard(session: session, viewModel: viewModel, agentManager: agentManager)
                 }
             }
         }
@@ -313,25 +342,45 @@ struct IslandView: View {
 struct SessionCard: View {
     @ObservedObject var session: AgentSession
     @ObservedObject var viewModel: NotchWindowViewModel
+    @ObservedObject var agentManager: AgentManager
     @State private var isHovered = false
 
     private var hasAsk: Bool {
         viewModel.pendingAsks.contains { $0.sessionId == session.id } || (session.status == .waiting && session.askQuestion != nil)
     }
 
+    private var pendingPermission: PermissionRequest? {
+        viewModel.pendingPermissions.first { $0.sessionId == session.id }
+    }
+
+    private var hasAttentionCard: Bool {
+        hasAsk || pendingPermission != nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            AgentRowView(session: session, hasAskCard: hasAsk)
+            AgentRowView(
+                session: session,
+                hasAskCard: hasAttentionCard,
+                hasPendingPermission: pendingPermission != nil
+            )
                 .contentShape(Rectangle())
                 .onTapGesture {
                     session.jumpToTerminal()
-                    if session.status == .done {
-                        session.status = .idle
+                    if session.status.isRecentlyFinished {
+                        agentManager.acknowledgeRecentCompletion(sessionId: session.id)
                     }
                     viewModel.collapse()
                 }
 
-            if let hookAsk = viewModel.pendingAsks.first(where: { $0.sessionId == session.id }) {
+            if let perm = pendingPermission {
+                PermissionBannerView(
+                    request: perm,
+                    onAllow: { viewModel.allowPermission(perm.id) },
+                    onAllowAlways: { viewModel.allowPermissionAlways(perm.id) },
+                    onDeny: { viewModel.denyPermission(perm.id) }
+                )
+            } else if let hookAsk = viewModel.pendingAsks.first(where: { $0.sessionId == session.id }) {
                 AskCardSwiftUI(
                     question: hookAsk.question,
                     options: hookAsk.options,
@@ -354,7 +403,7 @@ struct SessionCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(hasAsk ? Color.white.opacity(0.15) : Color.clear, lineWidth: 1)
+                .stroke(hasAttentionCard ? Color.white.opacity(0.15) : Color.clear, lineWidth: 1)
         )
         .onHover { isHovered = $0 }
     }

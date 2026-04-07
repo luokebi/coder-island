@@ -265,15 +265,29 @@ class NotchWindowViewModel: ObservableObject {
     }
 
     func allowPermission(_ id: String) {
-        pendingPermissions.removeAll { $0.id == id }
-        HookServer.shared.respondToPermission(requestId: id, allow: true)
-        onStateChange?(isExpanded)
+        respondPermissionDeferred(id: id, decision: .allow)
+    }
+
+    /// Allow the current request and persist the rule via Claude Code's own
+    /// `updatedPermissions` mechanism — no manual settings.json writes needed.
+    func allowPermissionAlways(_ id: String) {
+        respondPermissionDeferred(id: id, decision: .allowAlways)
     }
 
     func denyPermission(_ id: String) {
-        pendingPermissions.removeAll { $0.id == id }
-        HookServer.shared.respondToPermission(requestId: id, allow: false)
-        onStateChange?(isExpanded)
+        respondPermissionDeferred(id: id, decision: .deny)
+    }
+
+    private func respondPermissionDeferred(id: String, decision: PermissionDecisionKind) {
+        // Defer to the next run loop tick to avoid SwiftUI reentrancy:
+        // the click handler must return before we mutate @Published state
+        // and trigger a window resize (which measures the view tree).
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.pendingPermissions.removeAll { $0.id == id }
+            HookServer.shared.respondToPermission(requestId: id, decision: decision)
+            self.onStateChange?(self.isExpanded)
+        }
     }
 
     func answerAsk(_ id: String, answer: String) {
@@ -293,4 +307,44 @@ class NotchWindowViewModel: ObservableObject {
     }
 
     weak var agentManager: AgentManager?
+}
+
+/// Writes permission allow-rules into Claude Code's settings files so that
+/// "Yes, and don't ask again for ..." persists across future requests.
+enum PermissionRuleWriter {
+    /// Append the given rule strings to `permissions.allow` in the project-local
+    /// settings file (`<cwd>/.claude/settings.local.json`). Falls back to the
+    /// user-level `~/.claude/settings.json` if cwd is empty.
+    static func addAllowRules(_ rules: [String], cwd: String) {
+        guard !rules.isEmpty else { return }
+
+        let target: URL
+        if !cwd.isEmpty {
+            let dir = URL(fileURLWithPath: cwd).appendingPathComponent(".claude", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            target = dir.appendingPathComponent("settings.local.json")
+        } else {
+            target = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".claude/settings.json")
+        }
+
+        var settings: [String: Any] = [:]
+        if let data = try? Data(contentsOf: target),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            settings = existing
+        }
+
+        var permissions = settings["permissions"] as? [String: Any] ?? [:]
+        var allow = permissions["allow"] as? [String] ?? []
+        for rule in rules where !allow.contains(rule) {
+            allow.append(rule)
+        }
+        permissions["allow"] = allow
+        settings["permissions"] = permissions
+
+        if let out = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) {
+            try? out.write(to: target)
+            debugLog("[PermissionRuleWriter] Added \(rules) to \(target.path)")
+        }
+    }
 }

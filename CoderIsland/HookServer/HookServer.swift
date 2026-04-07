@@ -78,19 +78,58 @@ class HookServer {
 
         switch path {
         case "/permission":
-            let toolName = json["toolName"] as? String ?? "Unknown"
-            let toolInput = json["toolInput"] as? [String: Any] ?? [:]
+            // Dump full payload once so we can see what fields Claude Code actually sends.
+            HookServer.dumpPayload(path: "/permission", body: body)
+
+            // Claude Code hooks emit snake_case (tool_name/tool_input); accept camelCase too.
+            let toolName = (json["tool_name"] as? String)
+                ?? (json["toolName"] as? String)
+                ?? "Unknown"
+            let toolInput = (json["tool_input"] as? [String: Any])
+                ?? (json["toolInput"] as? [String: Any])
+                ?? [:]
             let inputDesc = describeToolInput(tool: toolName, input: toolInput)
+            let cwd = json["cwd"] as? String ?? ""
+
+            // Parse permission_suggestions — Claude Code provides the exact rules
+            // that "allow and don't ask again" should add to settings.
+            var allowSuggestion: PermissionSuggestion? = nil
+            if let suggestions = json["permission_suggestions"] as? [[String: Any]] {
+                for suggestion in suggestions {
+                    guard (suggestion["type"] as? String) == "addRules",
+                          (suggestion["behavior"] as? String) == "allow",
+                          let rulesRaw = suggestion["rules"] as? [[String: Any]] else { continue }
+                    let rules: [(toolName: String, ruleContent: String)] = rulesRaw.compactMap { r in
+                        guard let tn = r["toolName"] as? String else { return nil }
+                        let content = r["ruleContent"] as? String ?? ""
+                        return (toolName: tn, ruleContent: content)
+                    }
+                    if !rules.isEmpty {
+                        allowSuggestion = PermissionSuggestion(
+                            destination: suggestion["destination"] as? String ?? "localSettings",
+                            behavior: "allow",
+                            rules: rules
+                        )
+                        break
+                    }
+                }
+            }
 
             let request = PermissionRequest(
                 id: requestId,
                 sessionId: sessionId,
                 toolName: toolName,
                 description: inputDesc,
-                toolInput: toolInput
+                toolInput: toolInput,
+                cwd: cwd,
+                allowSuggestion: allowSuggestion
             )
 
-            pendingRequests[requestId] = PendingRequest(connection: connection, type: .permission)
+            pendingRequests[requestId] = PendingRequest(
+                connection: connection,
+                type: .permission,
+                allowSuggestion: allowSuggestion
+            )
 
             DispatchQueue.main.async {
                 self.onPermissionRequest?(request)
@@ -122,7 +161,7 @@ class HookServer {
                 options: options
             )
 
-            pendingRequests[requestId] = PendingRequest(connection: connection, type: .ask)
+            pendingRequests[requestId] = PendingRequest(connection: connection, type: .ask, allowSuggestion: nil)
             debugLog("[HookServer] Ask request created: id=\(requestId) q=\(question) opts=\(options.count)")
 
             DispatchQueue.main.async {
@@ -137,13 +176,72 @@ class HookServer {
 
     // MARK: - Respond to pending requests
 
-    func respondToPermission(requestId: String, allow: Bool) {
+    /// Respond to a pending permission request with the user's decision.
+    /// The body sent back is the *final* hook JSON that the shell script will
+    /// echo verbatim to Claude Code — it must conform to Claude's
+    /// `hookSpecificOutput.decision` schema for `PermissionRequest`.
+    func respondToPermission(requestId: String, decision: PermissionDecisionKind) {
         queue.async {
             guard let pending = self.pendingRequests.removeValue(forKey: requestId) else { return }
-            let decision = allow ? "allow" : "deny"
-            let responseBody = "{\"permissionDecision\":\"\(decision)\"}"
-            self.sendResponse(connection: pending.connection, statusCode: 200, body: responseBody)
+            let body = HookServer.buildPermissionHookOutput(
+                decision: decision,
+                suggestion: pending.allowSuggestion
+            )
+            self.sendResponse(connection: pending.connection, statusCode: 200, body: body)
         }
+    }
+
+    /// Back-compat shim so older callers still compile.
+    func respondToPermission(requestId: String, allow: Bool) {
+        respondToPermission(requestId: requestId, decision: allow ? .allow : .deny)
+    }
+
+    /// Build the exact JSON that a PermissionRequest hook must return to Claude Code.
+    /// Schema reference (Claude Code 2.1.x src/types/hooks.ts):
+    ///   hookSpecificOutput.hookEventName = "PermissionRequest"
+    ///   hookSpecificOutput.decision.behavior = "allow" | "deny"
+    ///   (allow) decision.updatedPermissions?: PermissionUpdate[]
+    ///   (deny)  decision.message?: string
+    static func buildPermissionHookOutput(
+        decision: PermissionDecisionKind,
+        suggestion: PermissionSuggestion?
+    ) -> String {
+        var decisionObj: [String: Any] = [:]
+        switch decision {
+        case .allow:
+            decisionObj["behavior"] = "allow"
+        case .allowAlways:
+            decisionObj["behavior"] = "allow"
+            if let suggestion = suggestion {
+                // Claude Code's permissionUpdateSchema shape: addRules with rules array
+                let rules: [[String: String]] = suggestion.rules.map { rule in
+                    ["toolName": rule.toolName, "ruleContent": rule.ruleContent]
+                }
+                let update: [String: Any] = [
+                    "type": "addRules",
+                    "rules": rules,
+                    "behavior": "allow",
+                    "destination": suggestion.destination
+                ]
+                decisionObj["updatedPermissions"] = [update]
+            }
+        case .deny:
+            decisionObj["behavior"] = "deny"
+            decisionObj["message"] = "Denied in Coder Island"
+        }
+
+        let output: [String: Any] = [
+            "hookSpecificOutput": [
+                "hookEventName": "PermissionRequest",
+                "decision": decisionObj
+            ]
+        ]
+
+        if let data = try? JSONSerialization.data(withJSONObject: output, options: []),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "{}"
     }
 
     func respondToAsk(requestId: String, answer: String) {
@@ -181,16 +279,75 @@ class HookServer {
     private func describeToolInput(tool: String, input: [String: Any]) -> String {
         switch tool {
         case "Bash":
-            return input["command"] as? String ?? "Run command"
+            if let cmd = input["command"] as? String { return "$ \(cmd)" }
+            return "Run command"
         case "Write":
-            return "Write to \(input["file_path"] as? String ?? "file")"
-        case "Edit":
-            return "Edit \(input["file_path"] as? String ?? "file")"
+            return "Write \(shortPath(input["file_path"] as? String))"
+        case "Edit", "MultiEdit":
+            return "Edit \(shortPath(input["file_path"] as? String))"
         case "Read":
-            return "Read \(input["file_path"] as? String ?? "file")"
+            return "Read \(shortPath(input["file_path"] as? String))"
+        case "NotebookEdit":
+            return "Edit notebook \(shortPath(input["notebook_path"] as? String))"
+        case "Glob":
+            return "Glob \(input["pattern"] as? String ?? "")"
+        case "Grep":
+            let pattern = input["pattern"] as? String ?? ""
+            let path = input["path"] as? String ?? ""
+            return path.isEmpty ? "Grep \"\(pattern)\"" : "Grep \"\(pattern)\" in \(shortPath(path))"
+        case "WebFetch":
+            if let url = input["url"] as? String {
+                let prompt = input["prompt"] as? String ?? ""
+                return prompt.isEmpty ? "Fetch \(url)" : "Fetch \(url) — \(prompt)"
+            }
+            return "Fetch URL"
+        case "WebSearch":
+            return "Search: \(input["query"] as? String ?? "")"
+        case "Task":
+            if let desc = input["description"] as? String {
+                let prompt = (input["prompt"] as? String) ?? ""
+                return prompt.isEmpty ? "Agent: \(desc)" : "Agent: \(desc) — \(prompt)"
+            }
+            return "Run subagent"
         default:
-            return "\(tool)"
+            // Fallback: show any short scalar fields so we don't just say the tool name
+            let scalars = input.compactMap { key, value -> String? in
+                if let s = value as? String, !s.isEmpty { return "\(key)=\(s)" }
+                return nil
+            }
+            let joined = scalars.prefix(3).joined(separator: " ")
+            return joined.isEmpty ? tool : "\(tool) \(joined)"
         }
+    }
+
+    /// Append raw hook payloads to ~/Library/Logs/CoderIsland/hook-payloads.log for inspection.
+    static func dumpPayload(path: String, body: String) {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/CoderIsland", isDirectory: true)
+            .appendingPathComponent("hook-payloads.log")
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let line = "\(ts) \(path)\n\(body)\n---\n"
+        guard let data = line.data(using: .utf8),
+              let handle = try? FileHandle(forWritingTo: url) else { return }
+        defer { try? handle.close() }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {}
+    }
+
+    private func shortPath(_ path: String?) -> String {
+        guard let path = path, !path.isEmpty else { return "file" }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
     }
 }
 
@@ -202,6 +359,38 @@ struct PermissionRequest: Identifiable {
     let toolName: String
     let description: String
     let toolInput: [String: Any]
+    /// The cwd of the Claude Code session — used when writing project-local settings.
+    var cwd: String = ""
+    /// Suggestions from Claude Code about what "allow and don't ask again" should add.
+    var allowSuggestion: PermissionSuggestion? = nil
+}
+
+/// A single persist-rule suggestion from Claude Code's PermissionRequest hook payload.
+struct PermissionSuggestion {
+    let destination: String  // e.g. "localSettings"
+    let behavior: String     // e.g. "allow"
+    let rules: [(toolName: String, ruleContent: String)]
+
+    /// The human-readable tail of the first rule, used in button labels.
+    /// e.g. "WebFetch domain:www.baidu.com" → "www.baidu.com"
+    var displayHint: String {
+        guard let first = rules.first else { return "" }
+        let content = first.ruleContent
+        if content.isEmpty { return first.toolName }
+        // Strip common prefixes like "domain:" or "path:"
+        if let colonIdx = content.firstIndex(of: ":") {
+            return String(content[content.index(after: colonIdx)...])
+        }
+        return content
+    }
+
+    /// Rules formatted for Claude Code's `permissions.allow` array in settings.
+    /// Each entry is `"<toolName>(<ruleContent>)"`, or `"<toolName>"` if no content.
+    var formattedRules: [String] {
+        rules.map { rule in
+            rule.ruleContent.isEmpty ? rule.toolName : "\(rule.toolName)(\(rule.ruleContent))"
+        }
+    }
 }
 
 struct AskRequest: Identifiable {
@@ -215,9 +404,19 @@ struct AskRequest: Identifiable {
 private struct PendingRequest {
     let connection: NWConnection
     let type: RequestType
+    /// For permission requests, the suggestion payload we received — needed to
+    /// build `updatedPermissions` when the user picks "allow and don't ask again".
+    let allowSuggestion: PermissionSuggestion?
 }
 
 private enum RequestType {
     case permission
     case ask
+}
+
+/// What the user picked in the Coder Island permission banner.
+enum PermissionDecisionKind {
+    case allow        // once
+    case allowAlways  // allow + persist via updatedPermissions
+    case deny
 }

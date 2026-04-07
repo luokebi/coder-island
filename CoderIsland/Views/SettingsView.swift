@@ -48,8 +48,8 @@ struct SettingsView: View {
                     sectionTitle("Interaction")
                     settingsCard {
                         settingsRow(
-                            title: "Answer questions in Coder Island",
-                            subtitle: "Use AskUserQuestion hook. Requires restarting Claude Code sessions."
+                            title: "Answer questions & permissions in Coder Island",
+                            subtitle: "Install AskUserQuestion + permission hooks. Requires restarting Claude Code sessions."
                         ) {
                             rightSwitch($askHooksEnabled)
                                 .onChange(of: askHooksEnabled) { _, enabled in

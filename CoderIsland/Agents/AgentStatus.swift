@@ -20,8 +20,21 @@ enum AgentStatus: String {
     case idle
     case running
     case waiting
+    case justFinished
     case done
     case error
+
+    var isActive: Bool {
+        self == .running || self == .waiting
+    }
+
+    var isRecentlyFinished: Bool {
+        self == .justFinished || self == .done
+    }
+
+    var isDimmedInUI: Bool {
+        isRecentlyFinished || self == .idle
+    }
 }
 
 class AgentSession: ObservableObject, Identifiable {
@@ -74,6 +87,8 @@ class AgentSession: ObservableObject, Identifiable {
     @Published var lastUserMessage: String?
     @Published var lastAssistantMessage: String?
     @Published var cachedTabNumber: Int?  // Cache the found tab position
+    var completionMarker: String?
+    var acknowledgedCompletionMarker: String?
     var lastUpdated: Date = Date()
 
     init(
@@ -89,7 +104,8 @@ class AgentSession: ObservableObject, Identifiable {
         askQuestion: String? = nil,
         askOptions: [(label: String, description: String)]? = nil,
         lastUserMessage: String? = nil,
-        lastAssistantMessage: String? = nil
+        lastAssistantMessage: String? = nil,
+        completionMarker: String? = nil
     ) {
         self.id = id
         self.agentType = agentType
@@ -104,6 +120,12 @@ class AgentSession: ObservableObject, Identifiable {
         self.askOptions = askOptions
         self.lastUserMessage = lastUserMessage
         self.lastAssistantMessage = lastAssistantMessage
+        self.completionMarker = completionMarker
+    }
+
+    func acknowledgeRecentCompletion() {
+        acknowledgedCompletionMarker = completionMarker
+        status = .idle
     }
 
     var elapsedTimeString: String {

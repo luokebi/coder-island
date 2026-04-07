@@ -17,6 +17,16 @@ class AgentManager: ObservableObject {
     private var knownSessionIds: Set<String> = []
     private let claudeDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
     private let codexDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+    private let traceLogURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/CoderIsland", isDirectory: true)
+        .appendingPathComponent("status-trace.log")
+
+    /// Parses Claude Code transcript timestamps like "2026-04-07T07:27:12.576Z".
+    static let iso8601Formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
     func startMonitoring() {
         scanForSessions()
@@ -26,6 +36,24 @@ class AgentManager: ObservableObject {
     func stopMonitoring() {
         scanTimer?.invalidate()
         scanTimer = nil
+    }
+
+    func acknowledgeRecentCompletion(sessionId: String) {
+        guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+
+        let session = sessions[idx]
+        let marker = stableCompletionMarker(for: session)
+        let oldStatus = session.status
+
+        session.completionMarker = marker
+        session.acknowledgedCompletionMarker = marker
+        session.status = .idle
+        session.lastUpdated = Date()
+
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let safeTask = session.taskName.replacingOccurrences(of: "\n", with: "\\n")
+        let safeMarker = (marker ?? "-").replacingOccurrences(of: "\n", with: "\\n")
+        traceLine("\(ts) [completion_acknowledged] agent=\(session.agentType.rawValue) id=\(session.id) task=\(safeTask) old=\(oldStatus.rawValue) new=idle marker=\(safeMarker)")
     }
 
     private func scanForSessions() {
@@ -45,14 +73,31 @@ class AgentManager: ObservableObject {
 
             DispatchQueue.main.async {
                 for session in activeSessions {
+                    session.completionMarker = self.stableCompletionMarker(for: session)
                     if !self.knownSessionIds.contains(session.id) {
                         self.sessions.append(session)
                         self.knownSessionIds.insert(session.id)
+                        self.traceStatusTransition(
+                            event: "session_appeared",
+                            session: session,
+                            oldStatus: nil,
+                            reason: "initial scan insert"
+                        )
                     } else if let idx = self.sessions.firstIndex(where: { $0.id == session.id }) {
                         let hadAsk = self.sessions[idx].askQuestion != nil
                         let oldStatus = self.sessions[idx].status
                         let oldSubtitle = self.sessions[idx].subtitle
-                        self.sessions[idx].status = session.status
+                        let incomingCompletionMarker = self.stableCompletionMarker(for: session)
+                        self.sessions[idx].completionMarker = incomingCompletionMarker
+                        let effectiveStatus: AgentStatus = {
+                            if session.status.isRecentlyFinished,
+                               incomingCompletionMarker != nil,
+                               self.sessions[idx].acknowledgedCompletionMarker == incomingCompletionMarker {
+                                return .idle
+                            }
+                            return session.status
+                        }()
+                        self.sessions[idx].status = effectiveStatus
                         self.sessions[idx].taskName = session.taskName
                         self.sessions[idx].subtitle = session.subtitle
                         self.sessions[idx].terminalApp = session.terminalApp
@@ -68,12 +113,24 @@ class AgentManager: ObservableObject {
                         self.sessions[idx].lastAssistantMessage = session.lastAssistantMessage
 
                         // Bump lastUpdated when state actually changes
-                        if session.status != oldStatus || session.subtitle != oldSubtitle {
+                        if effectiveStatus != oldStatus || session.subtitle != oldSubtitle {
                             self.sessions[idx].lastUpdated = Date()
+                            self.traceStatusTransition(
+                                event: "status_changed",
+                                session: self.sessions[idx],
+                                oldStatus: oldStatus,
+                                reason: session.subtitle ?? "subtitle=nil"
+                            )
                         }
 
-                        // Play completion sound only when transitioning from active -> done
-                        if session.status == .done && (oldStatus == .running || oldStatus == .waiting) {
+                        // Play completion sound only when transitioning from active -> completed
+                        if effectiveStatus.isRecentlyFinished && oldStatus.isActive {
+                            self.traceStatusTransition(
+                                event: "completion_sound",
+                                session: self.sessions[idx],
+                                oldStatus: oldStatus,
+                                reason: session.subtitle ?? "subtitle=nil"
+                            )
                             SoundManager.shared.playTaskComplete()
                         }
 
@@ -95,7 +152,7 @@ class AgentManager: ObservableObject {
                 // Sort: running first, then done/error, then idle
                 // Within same priority, most recently active first
                 self.sessions.sort { a, b in
-                    let order: [AgentStatus: Int] = [.running: 0, .waiting: 0, .done: 1, .idle: 2, .error: 1]
+                    let order: [AgentStatus: Int] = [.running: 0, .waiting: 0, .justFinished: 1, .done: 1, .error: 1, .idle: 2]
                     let oa = order[a.status] ?? 2
                     let ob = order[b.status] ?? 2
                     if oa != ob { return oa < ob }
@@ -113,6 +170,18 @@ class AgentManager: ObservableObject {
         }
     }
 
+    private func stableCompletionMarker(for session: AgentSession) -> String? {
+        if let marker = session.completionMarker, !marker.isEmpty {
+            return marker
+        }
+        guard session.status.isRecentlyFinished else { return nil }
+
+        let task = session.taskName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = (session.lastUserMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let assistant = (session.lastAssistantMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return "fallback:\(session.agentType.rawValue):\(session.id):\(task):\(user):\(assistant)"
+    }
+
     private func rescheduleScanTimer(interval: TimeInterval) {
         guard abs(currentScanInterval - interval) > 0.01 || scanTimer == nil else { return }
         scanTimer?.invalidate()
@@ -120,6 +189,60 @@ class AgentManager: ObservableObject {
         scanTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.scanForSessions()
         }
+    }
+
+    private func traceLine(_ line: String) {
+        debugLog(line)
+
+        let fm = FileManager.default
+        let dir = traceLogURL.deletingLastPathComponent()
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        if let attrs = try? fm.attributesOfItem(atPath: traceLogURL.path),
+           let size = attrs[.size] as? NSNumber,
+           size.intValue > 1_000_000 {
+            try? fm.removeItem(at: traceLogURL)
+        }
+
+        if !fm.fileExists(atPath: traceLogURL.path) {
+            fm.createFile(atPath: traceLogURL.path, contents: nil)
+        }
+
+        guard let data = (line + "\n").data(using: .utf8),
+              let handle = try? FileHandle(forWritingTo: traceLogURL) else { return }
+        defer { try? handle.close() }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {
+            debugLog("[trace] append failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func traceStatusTransition(
+        event: String,
+        session: AgentSession,
+        oldStatus: AgentStatus?,
+        reason: String
+    ) {
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let safeTask = session.taskName.replacingOccurrences(of: "\n", with: "\\n")
+        let safeSubtitle = (session.subtitle ?? "").replacingOccurrences(of: "\n", with: "\\n")
+        let safeReason = reason.replacingOccurrences(of: "\n", with: "\\n")
+        traceLine("\(ts) [\(event)] agent=\(session.agentType.rawValue) id=\(session.id) task=\(safeTask) old=\(oldStatus?.rawValue ?? "-") new=\(session.status.rawValue) subtitle=\(safeSubtitle) reason=\(safeReason)")
+    }
+
+    private func traceParserDecision(
+        parser: String,
+        source: String,
+        status: AgentStatus,
+        subtitle: String?,
+        reason: String
+    ) {
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let safeSubtitle = (subtitle ?? "").replacingOccurrences(of: "\n", with: "\\n")
+        let safeReason = reason.replacingOccurrences(of: "\n", with: "\\n")
+        traceLine("\(ts) [parser] parser=\(parser) source=\(source) status=\(status.rawValue) subtitle=\(safeSubtitle) reason=\(safeReason)")
     }
 
     // MARK: - Claude Code
@@ -169,7 +292,8 @@ class AgentManager: ObservableObject {
                     askQuestion: state.askQuestion,
                     askOptions: state.askOptions,
                     lastUserMessage: state.lastUserMessage,
-                    lastAssistantMessage: state.lastAssistantMessage
+                    lastAssistantMessage: state.lastAssistantMessage,
+                    completionMarker: state.completionMarker
                 ))
             }
         }
@@ -206,7 +330,8 @@ class AgentManager: ObservableObject {
                 terminalApp: terminal,
                 workingDirectory: cwd,
                 lastUserMessage: state.lastUserMessage,
-                lastAssistantMessage: state.lastAssistantMessage
+                lastAssistantMessage: state.lastAssistantMessage,
+                completionMarker: state.completionMarker
             ))
         }
 
@@ -252,6 +377,7 @@ class AgentManager: ObservableObject {
         var askOptions: [(label: String, description: String)]?
         var lastUserMessage: String?
         var lastAssistantMessage: String?
+        var completionMarker: String?
     }
 
     private func readSessionState(sessionId: String) -> SessionState {
@@ -304,7 +430,7 @@ class AgentManager: ObservableObject {
             if recent.count >= 8 { break }
         }
 
-        guard let last = recent.first else { return SessionState(status: .running) }
+        guard !recent.isEmpty else { return SessionState(status: .running) }
 
         // Find user's latest text message (scan all lines)
         let lastUserMsg: String? = {
@@ -343,87 +469,141 @@ class AgentManager: ObservableObject {
             return nil
         }()
 
-        if last.type == "user" {
-            let content = last.json["message"] as? [String: Any]
-            let contentValue = content?["content"]
-            let isToolResult: Bool
-            if let arr = contentValue as? [[String: Any]] {
-                isToolResult = arr.contains { $0["type"] as? String == "tool_result" }
-            } else {
-                isToolResult = false
-            }
-
-            // Check for interrupt marker
-            let isInterrupted: Bool = {
-                if let text = contentValue as? String {
-                    return text.contains("interrupted")
-                }
-                if let arr = contentValue as? [[String: Any]] {
-                    return arr.contains { item in
-                        (item["text"] as? String)?.contains("interrupted") == true
-                    }
-                }
-                return false
-            }()
-            if isInterrupted {
-                return SessionState(status: .done, lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
-            }
-
-            if isToolResult {
-                // Find the most recent assistant message to describe what tool is running
-                if let prev = recent.dropFirst().first(where: { $0.type == "assistant" }),
-                   let msg = prev.json["message"] as? [String: Any],
-                   let contentArray = msg["content"] as? [[String: Any]],
-                   let toolUse = contentArray.last(where: { $0["type"] as? String == "tool_use" }),
-                   let toolName = toolUse["name"] as? String {
-                    let input = toolUse["input"] as? [String: Any]
-                    return SessionState(status: .running, subtitle: describeToolUsage(tool: toolName, input: input), lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
-                }
-                return SessionState(status: .running, subtitle: "Working...", lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
-            }
-
-            // User sent a message, Claude is processing
-            return SessionState(status: .running, subtitle: "Thinking...", lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
+        func decided(status: AgentStatus, subtitle: String? = nil, reason: String, askQuestion: String? = nil, askOptions: [(label: String, description: String)]? = nil, completionMarker: String? = nil) -> SessionState {
+            traceParserDecision(
+                parser: "claude",
+                source: file.lastPathComponent,
+                status: status,
+                subtitle: subtitle,
+                reason: reason
+            )
+            return SessionState(
+                status: status,
+                subtitle: subtitle,
+                askQuestion: askQuestion,
+                askOptions: askOptions,
+                lastUserMessage: lastUserMsg,
+                lastAssistantMessage: lastAssistantMsg,
+                completionMarker: completionMarker
+            )
         }
 
-        if last.type == "assistant",
-           let message = last.json["message"] as? [String: Any] {
-            let stopReason = message["stop_reason"] as? String
+        var sawIntermediateAssistant = false
 
-            if stopReason == "end_turn" {
-                return SessionState(status: .done, lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
-            } else if stopReason == nil {
-                // No stop_reason = still streaming or thinking (intermediate assistant entry)
-                // Claude Code writes assistant entries with stop_reason=nil during thinking phase
-                // These should always be treated as running, never done
-                return SessionState(status: .running, subtitle: "Thinking...", lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
-            } else if stopReason == "tool_use" {
-                if let contentArray = message["content"] as? [[String: Any]],
-                   let toolUse = contentArray.last(where: { $0["type"] as? String == "tool_use" }),
-                   let toolName = toolUse["name"] as? String {
-                    let input = toolUse["input"] as? [String: Any]
+        for (index, entry) in recent.enumerated() {
+            if entry.type == "user" {
+                let content = entry.json["message"] as? [String: Any]
+                let contentValue = content?["content"]
+                let isToolResult: Bool
+                if let arr = contentValue as? [[String: Any]] {
+                    isToolResult = arr.contains { $0["type"] as? String == "tool_result" }
+                } else {
+                    isToolResult = false
+                }
 
-                    if toolName == "AskUserQuestion" {
-                        let hooksEnabled = UserDefaults.standard.bool(forKey: "askHooksEnabled")
-                        if hooksEnabled {
-                            return SessionState(status: .waiting, subtitle: "Waiting for answer...", lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
+                let isInterrupted: Bool = {
+                    if let text = contentValue as? String {
+                        return text.contains("interrupted")
+                    }
+                    if let arr = contentValue as? [[String: Any]] {
+                        return arr.contains { item in
+                            (item["text"] as? String)?.contains("interrupted") == true
                         }
-                        let question = extractQuestion(from: input)
-                        let options = extractOptions(from: input)
-                        return SessionState(
-                            status: .waiting, subtitle: question,
-                            askQuestion: question, askOptions: options,
-                            lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg
+                    }
+                    return false
+                }()
+                if isInterrupted {
+                    return decided(status: .idle, reason: "user interrupt marker")
+                }
+
+                if isToolResult {
+                    if let prev = recent.dropFirst(index + 1).first(where: { $0.type == "assistant" }),
+                       let msg = prev.json["message"] as? [String: Any],
+                       let contentArray = msg["content"] as? [[String: Any]],
+                       let toolUse = contentArray.last(where: { $0["type"] as? String == "tool_use" }),
+                       let toolName = toolUse["name"] as? String {
+                        let input = toolUse["input"] as? [String: Any]
+                        return decided(
+                            status: .running,
+                            subtitle: describeToolUsage(tool: toolName, input: input),
+                            reason: "user tool_result after assistant tool_use=\(toolName)"
                         )
                     }
-                    return SessionState(status: .running, subtitle: describeToolUsage(tool: toolName, input: input), lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
+                    return decided(status: .running, subtitle: "Working...", reason: "user tool_result without matching tool_use")
                 }
-                return SessionState(status: .running, subtitle: "Working...", lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
+
+                return decided(status: .running, subtitle: "Thinking...", reason: "latest decisive entry is plain user message")
             }
-            return SessionState(status: .running, subtitle: "Thinking...", lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
+
+            if entry.type == "assistant",
+               let message = entry.json["message"] as? [String: Any] {
+                let stopReason = message["stop_reason"] as? String
+
+                if stopReason == "end_turn" {
+                    let marker = (entry.json["uuid"] as? String)
+                        ?? (message["id"] as? String)
+                        ?? ((entry.json["timestamp"] as? String).map { "claude-end-turn:\($0)" })
+                    return decided(status: .justFinished, reason: "assistant stop_reason=end_turn", completionMarker: marker)
+                } else if stopReason == nil {
+                    sawIntermediateAssistant = true
+                    continue
+                } else if stopReason == "tool_use" {
+                    if let contentArray = message["content"] as? [[String: Any]],
+                       let toolUse = contentArray.last(where: { $0["type"] as? String == "tool_use" }),
+                       let toolName = toolUse["name"] as? String {
+                        let input = toolUse["input"] as? [String: Any]
+
+                        if toolName == "AskUserQuestion" {
+                            let hooksEnabled = UserDefaults.standard.bool(forKey: "askHooksEnabled")
+                            if hooksEnabled {
+                                return decided(status: .waiting, subtitle: "Waiting for answer...", reason: "assistant AskUserQuestion while hooks enabled")
+                            }
+                            let question = extractQuestion(from: input)
+                            let options = extractOptions(from: input)
+                            return decided(
+                                status: .waiting,
+                                subtitle: question,
+                                reason: "assistant AskUserQuestion",
+                                askQuestion: question,
+                                askOptions: options
+                            )
+                        }
+                        // Detect pending permission prompt: if this tool_use is the newest
+                        // decisive entry and the transcript hasn't progressed for a while,
+                        // Claude Code is likely waiting for the user to approve the tool call.
+                        // Non-Bash/Agent tools (Read/Write/Edit/Grep/Glob) normally complete
+                        // in milliseconds, so even a short stall is a strong signal. Bash and
+                        // Agent can legitimately run long, so we require a bigger gap there.
+                        if let tsStr = entry.json["timestamp"] as? String,
+                           let entryDate = AgentManager.iso8601Formatter.date(from: tsStr) {
+                            let age = Date().timeIntervalSince(entryDate)
+                            let threshold: TimeInterval = (toolName == "Bash" || toolName == "Agent") ? 6.0 : 2.0
+                            if age > threshold {
+                                let hint = describeToolUsage(tool: toolName, input: input)
+                                return decided(
+                                    status: .waiting,
+                                    subtitle: "Awaiting permission: \(hint)",
+                                    reason: "stale assistant tool_use age=\(Int(age))s tool=\(toolName) — likely awaiting permission"
+                                )
+                            }
+                        }
+
+                        return decided(
+                            status: .running,
+                            subtitle: describeToolUsage(tool: toolName, input: input),
+                            reason: "assistant stop_reason=tool_use name=\(toolName)"
+                        )
+                    }
+                    return decided(status: .running, subtitle: "Working...", reason: "assistant stop_reason=tool_use without tool payload")
+                }
+            }
         }
 
-        return SessionState(status: .running, lastUserMessage: lastUserMsg, lastAssistantMessage: lastAssistantMsg)
+        if sawIntermediateAssistant {
+            return decided(status: .running, subtitle: "Thinking...", reason: "only intermediate assistant entries with stop_reason=nil in recent tail")
+        }
+
+        return decided(status: .running, reason: "fallback running with no decisive recent entry")
     }
 
     private func describeToolUsage(tool: String, input: [String: Any]?) -> String {
@@ -622,7 +802,8 @@ class AgentManager: ObservableObject {
                 workingDirectory: cwd,
                 startDate: nil,
                 lastUserMessage: state.lastUserMessage,
-                lastAssistantMessage: state.lastAssistantMessage
+                lastAssistantMessage: state.lastAssistantMessage,
+                completionMarker: state.completionMarker
             ))
         }
 
@@ -754,6 +935,25 @@ class AgentManager: ObservableObject {
         var hasResponseItems = false
         var hasUserMessageAfterComplete = false
         var foundTaskComplete = false
+        var lastTurnAbortReason: String?
+        var lastTaskCompleteMarker: String?
+
+        func decided(status: AgentStatus, subtitle: String? = nil, reason: String, completionMarker: String? = nil) -> SessionState {
+            traceParserDecision(
+                parser: "codex",
+                source: URL(fileURLWithPath: path).lastPathComponent,
+                status: status,
+                subtitle: subtitle,
+                reason: reason
+            )
+            return SessionState(
+                status: status,
+                subtitle: subtitle,
+                lastUserMessage: lastUserMessage,
+                lastAssistantMessage: lastAgentMessage,
+                completionMarker: completionMarker
+            )
+        }
 
         // Parse from the end to find the most recent state
         for line in lines.reversed() {
@@ -767,8 +967,18 @@ class AgentManager: ObservableObject {
                 if payloadType == "task_complete" {
                     if lastEventType == nil { lastEventType = "task_complete" }
                     foundTaskComplete = true
+                    if lastTaskCompleteMarker == nil {
+                        lastTaskCompleteMarker = (json["timestamp"] as? String)
+                            ?? payload["turn_id"] as? String
+                            ?? payload["last_agent_message"] as? String
+                    }
                     if let msg = payload["last_agent_message"] as? String, lastAgentMessage == nil {
                         lastAgentMessage = String(msg.prefix(80))
+                    }
+                } else if payloadType == "turn_aborted" {
+                    if lastEventType == nil { lastEventType = "turn_aborted" }
+                    if lastTurnAbortReason == nil {
+                        lastTurnAbortReason = payload["reason"] as? String
                     }
                 } else if payloadType == "task_started" {
                     if lastEventType == nil { lastEventType = "task_started" }
@@ -815,8 +1025,16 @@ class AgentManager: ObservableObject {
         } else {
             switch lastEventType {
             case "task_complete":
-                status = .done
+                status = .justFinished
                 subtitle = nil
+            case "turn_aborted":
+                if lastTurnAbortReason == "interrupted" {
+                    status = .idle
+                    subtitle = nil
+                } else {
+                    status = .error
+                    subtitle = "Aborted"
+                }
             case "task_started":
                 if let tool = lastToolCall {
                     status = .running
@@ -838,12 +1056,23 @@ class AgentManager: ObservableObject {
             }
         }
 
-        return SessionState(
-            status: status,
-            subtitle: subtitle,
-            lastUserMessage: lastUserMessage,
-            lastAssistantMessage: lastAgentMessage
-        )
+        let reason: String = {
+            switch lastEventType {
+            case "task_complete":
+                return "event task_complete"
+            case "turn_aborted":
+                return "event turn_aborted reason=\(lastTurnAbortReason ?? "unknown")"
+            case "task_started":
+                return "event task_started"
+            default:
+                if hasResponseItems {
+                    return "response_item fallback"
+                }
+                return "idle fallback without recent task events"
+            }
+        }()
+
+        return decided(status: status, subtitle: subtitle, reason: reason, completionMarker: lastTaskCompleteMarker)
     }
 
     private func cleanCodexThreadName(_ name: String) -> String {

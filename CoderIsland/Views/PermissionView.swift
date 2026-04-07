@@ -1,80 +1,185 @@
 import SwiftUI
 
+/// Permission card shown inline inside a SessionCard, mirroring AskCardSwiftUI.
+/// Displays Claude Code's 3 standard options: Allow once, Allow + don't ask again, Deny.
 struct PermissionBannerView: View {
     let request: PermissionRequest
     let onAllow: () -> Void
+    let onAllowAlways: () -> Void
     let onDeny: () -> Void
 
-    @State private var isAnimating = false
+    private let orangeColor = Color.orange
+    private let optBg = Color(red: 0.32, green: 0.22, blue: 0.08)
+
+    private var titleLine: String {
+        questionTitle(toolName: request.toolName)
+    }
+
+    private var bodyLine: String {
+        // Primary content line — full URL / command / path, not truncated.
+        primaryInput(toolName: request.toolName, input: request.toolInput)
+            ?? request.description
+    }
+
+    private var subLine: String? {
+        subText(toolName: request.toolName, input: request.toolInput)
+    }
+
+    private var allowAlwaysLabel: String {
+        if let hint = request.allowSuggestion?.displayHint, !hint.isEmpty {
+            return "Yes, and don't ask again for \(hint)"
+        }
+        return "Yes, and don't ask again for \(request.toolName)"
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Header
+        VStack(alignment: .leading, spacing: 10) {
+            // Header line with tool tag
             HStack(spacing: 6) {
                 Circle()
-                    .fill(Color.orange)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: .orange.opacity(isAnimating ? 0.8 : 0.2), radius: isAnimating ? 4 : 1)
-
+                    .fill(orangeColor)
+                    .frame(width: 7, height: 7)
                 Text("Permission Request")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(.orange)
-
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(orangeColor)
                 Spacer()
-
                 TagBadge(text: request.toolName)
             }
 
-            // Description
-            Text(request.description)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.white)
-                .lineLimit(3)
-
-            // Buttons
-            HStack(spacing: 8) {
-                Spacer()
-
-                Button(action: onDeny) {
-                    Text("Deny")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.red.opacity(0.3))
-                                .stroke(Color.red.opacity(0.5), lineWidth: 1)
-                        )
+            // Claude Code-style body: tool title → primary content → description
+            VStack(alignment: .leading, spacing: 4) {
+                Text(titleLine)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(bodyLine)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                if let sub = subLine {
+                    Text(sub)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.plain)
+            }
 
-                Button(action: onAllow) {
-                    Text("Allow")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.green.opacity(0.3))
-                                .stroke(Color.green.opacity(0.5), lineWidth: 1)
-                        )
+            // 3 numbered option rows (matches AskCardSwiftUI styling)
+            VStack(spacing: 6) {
+                PermissionOptionRow(index: 0, label: "Yes", tint: orangeColor, bg: optBg, action: onAllow)
+                if request.allowSuggestion != nil {
+                    PermissionOptionRow(index: 1, label: allowAlwaysLabel, tint: orangeColor, bg: optBg, action: onAllowAlways)
                 }
-                .buttonStyle(.plain)
+                PermissionOptionRow(
+                    index: request.allowSuggestion != nil ? 2 : 1,
+                    label: "No, and tell Claude what to do differently",
+                    tint: Color.red.opacity(0.75),
+                    bg: Color(red: 0.32, green: 0.1, blue: 0.1),
+                    action: onDeny
+                )
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.orange.opacity(0.08))
-                .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-        )
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                isAnimating = true
-            }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func questionTitle(toolName: String) -> String {
+        switch toolName {
+        case "WebFetch": return "Do you want to allow Claude to fetch this content?"
+        case "WebSearch": return "Do you want to allow Claude to run this web search?"
+        case "Bash": return "Do you want to allow Claude to run this command?"
+        case "Edit", "MultiEdit": return "Do you want to allow Claude to edit this file?"
+        case "Write": return "Do you want to allow Claude to write this file?"
+        case "Read": return "Do you want to allow Claude to read this file?"
+        case "NotebookEdit": return "Do you want to allow Claude to edit this notebook?"
+        case "Glob": return "Do you want to allow Claude to run this glob?"
+        case "Grep": return "Do you want to allow Claude to run this grep?"
+        case "Task": return "Do you want to allow Claude to launch this subagent?"
+        default: return "Do you want to allow Claude to use \(toolName)?"
         }
+    }
+
+    private func primaryInput(toolName: String, input: [String: Any]) -> String? {
+        switch toolName {
+        case "WebFetch": return input["url"] as? String
+        case "WebSearch": return input["query"] as? String
+        case "Bash": return (input["command"] as? String).map { "$ \($0)" }
+        case "Edit", "MultiEdit", "Write", "Read": return input["file_path"] as? String
+        case "NotebookEdit": return input["notebook_path"] as? String
+        case "Glob": return input["pattern"] as? String
+        case "Grep":
+            let pattern = input["pattern"] as? String ?? ""
+            let path = input["path"] as? String ?? ""
+            return path.isEmpty ? pattern : "\(pattern)  in  \(path)"
+        case "Task": return input["description"] as? String
+        default: return nil
+        }
+    }
+
+    private func subText(toolName: String, input: [String: Any]) -> String? {
+        switch toolName {
+        case "WebFetch":
+            if let url = input["url"] as? String,
+               let host = URL(string: url)?.host {
+                let prompt = (input["prompt"] as? String) ?? ""
+                return prompt.isEmpty
+                    ? "Claude wants to fetch content from \(host)"
+                    : "Claude wants to fetch content from \(host) — \(prompt)"
+            }
+            return input["prompt"] as? String
+        case "Bash":
+            return input["description"] as? String
+        case "Task":
+            return input["prompt"] as? String
+        default: return nil
+        }
+    }
+}
+
+private struct PermissionOptionRow: View {
+    let index: Int
+    let label: String
+    let tint: Color
+    let bg: Color
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(tint.opacity(0.3))
+                        .frame(width: 26, height: 26)
+                    Text("\(index + 1)")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(tint)
+                }
+
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isHovered ? bg.opacity(1) : bg.opacity(0.7))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
