@@ -59,7 +59,7 @@ class SoundManager {
 
     var selectedPreset: Preset {
         let raw = UserDefaults.standard.string(forKey: presetKey) ?? ""
-        return Preset(rawValue: raw) ?? .system
+        return Preset(rawValue: raw) ?? .mario
     }
 
     func effectiveSoundLabel(for event: Event) -> String {

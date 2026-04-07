@@ -6,7 +6,7 @@ struct SettingsView: View {
     @AppStorage("monitorClaudeCode") private var monitorClaudeCode = true
     @AppStorage("monitorCodex") private var monitorCodex = true
     @AppStorage("soundEnabled") private var soundEnabled = true
-    @AppStorage("soundPreset") private var soundPreset = SoundManager.Preset.system.rawValue
+    @AppStorage("soundPreset") private var soundPreset = SoundManager.Preset.mario.rawValue
     @AppStorage("soundPermissionEnabled") private var soundPermissionEnabled = true
     @AppStorage("soundAskEnabled") private var soundAskEnabled = true
     @AppStorage("soundTaskDoneEnabled") private var soundTaskDoneEnabled = true
@@ -306,7 +306,7 @@ struct SettingsView: View {
     }
 
     private var selectedPreset: SoundManager.Preset {
-        SoundManager.Preset(rawValue: soundPreset) ?? .system
+        SoundManager.Preset(rawValue: soundPreset) ?? .mario
     }
 
     private var presetMenu: some View {

@@ -14,6 +14,7 @@ struct IslandView: View {
     private let barColor = Color.black
     // Extra padding around the shape so corners + shadow are visible
     static let inset: CGFloat = 24
+    static let noNotchExpandedTopInset: CGFloat = 16
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -75,7 +76,7 @@ struct IslandView: View {
     // MARK: - Compact Bar
 
     private var compactContent: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             if agentManager.sessions.isEmpty && viewModel.pendingPermissions.isEmpty {
                 Image(systemName: "sparkles")
                     .font(.system(size: 10))
@@ -160,9 +161,7 @@ struct IslandView: View {
 
     private var expandedContent: some View {
         VStack(spacing: 4) {
-            if viewModel.hasNotch {
-                Spacer().frame(height: viewModel.notchHeight - 8)
-            }
+            Spacer().frame(height: topReservedSpace)
 
             // Hook-based permission requests
             ForEach(viewModel.pendingPermissions) { req in
@@ -283,6 +282,13 @@ struct IslandView: View {
             .padding(.top, viewModel.hasNotch ? 8 : 4)
             .padding(.trailing, 12)
         }
+    }
+
+    private var topReservedSpace: CGFloat {
+        if viewModel.hasNotch {
+            return max(0, viewModel.notchHeight - 8)
+        }
+        return Self.noNotchExpandedTopInset
     }
 
     private var emptyState: some View {

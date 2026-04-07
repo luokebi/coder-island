@@ -83,7 +83,29 @@ open ~/Library/Developer/Xcode/DerivedData/CoderIsland-*/Build/Products/Debug/Co
 | 监控 Codex CLI | `~/.codex/` 目录下的 rollout JSONL 文件 |
 | Tab 跳转 (Warp/Ghostty) | Accessibility 权限 + 对应终端应用 |
 
-## 快速编译+运行
+## 6. 打包 DMG（不付费分发）
+
+如果目标是把 `.dmg` 放到网站上，让用户手动绕过 macOS 安全警告后安装，可以直接执行：
+
+```bash
+./scripts/package-dmg.sh
+```
+
+默认行为：
+
+- 若钥匙串里存在 `CoderIsland Dev` 证书，会使用它重新签名，便于保持稳定签名身份
+- 若不存在，则退回到 ad hoc 签名
+- 产物输出到 `build/dist/CoderIsland-0.1.0.dmg`
+
+也可以显式指定签名证书：
+
+```bash
+CODE_SIGN_IDENTITY="CoderIsland Dev" ./scripts/package-dmg.sh
+```
+
+这种方式适合测试版或个人网站分发，但用户首次打开时仍会看到 Gatekeeper 安全提示，需要手动在 **System Settings → Privacy & Security** 中放行。
+
+## 7. 快速编译+运行
 
 ```bash
 xcodebuild -project CoderIsland.xcodeproj -scheme CoderIsland -configuration Debug \
