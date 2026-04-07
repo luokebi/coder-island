@@ -98,6 +98,12 @@ class AgentManager: ObservableObject {
             // A new user prompt resets the completion-acknowledged marker so
             // the next Stop event can trigger the completion sound again.
             session.acknowledgedCompletionMarker = nil
+            // Mark the submit timestamp so the next ~3s of scans don't
+            // mistakenly play a completion sound: the jsonl tail may still
+            // show the previous turn's end_turn because the new user prompt
+            // hasn't been flushed yet, and we'd otherwise transition
+            // .running → .justFinished for stale data.
+            session.lastUserPromptSubmitAt = Date()
         case "Stop":
             // Authoritative main-agent completion. Overrides the jsonl
             // end_turn fallback which has historically misfired on
@@ -181,6 +187,19 @@ class AgentManager: ObservableObject {
                         let oldSubtitle = self.sessions[idx].subtitle
                         let incomingCompletionMarker = self.stableCompletionMarker(for: session)
                         self.sessions[idx].completionMarker = incomingCompletionMarker
+
+                        // Grace window after a UserPromptSubmit hook. The jsonl
+                        // write of the new user prompt can lag the hook by up
+                        // to a few seconds, so the scan would still see
+                        // end_turn as the latest decisive entry and want to
+                        // flip us back to .justFinished — playing a spurious
+                        // completion sound at the *start* of a new turn.
+                        let userPromptGrace: TimeInterval = 5
+                        let inUserPromptGrace: Bool = {
+                            guard let t = self.sessions[idx].lastUserPromptSubmitAt else { return false }
+                            return Date().timeIntervalSince(t) < userPromptGrace
+                        }()
+
                         let effectiveStatus: AgentStatus = {
                             if session.status.isRecentlyFinished,
                                incomingCompletionMarker != nil,
@@ -199,6 +218,15 @@ class AgentManager: ObservableObject {
                             if self.sessions[idx].status == .justFinished
                                 && session.status == .running {
                                 return .justFinished
+                            }
+                            // Symmetric guard: inside the UserPromptSubmit
+                            // grace window, don't let the scan flip us back
+                            // from .running to .justFinished based on a stale
+                            // end_turn entry.
+                            if inUserPromptGrace
+                                && self.sessions[idx].status == .running
+                                && session.status == .justFinished {
+                                return .running
                             }
                             return session.status
                         }()

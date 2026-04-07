@@ -90,6 +90,10 @@ class AgentSession: ObservableObject, Identifiable {
     var completionMarker: String?
     var acknowledgedCompletionMarker: String?
     var lastUpdated: Date = Date()
+    /// Timestamp of the most recent UserPromptSubmit hook. Used to suppress
+    /// spurious completion sounds when the jsonl tail still shows end_turn
+    /// because the new user prompt hasn't been flushed to disk yet.
+    var lastUserPromptSubmitAt: Date?
 
     init(
         id: String = UUID().uuidString,
