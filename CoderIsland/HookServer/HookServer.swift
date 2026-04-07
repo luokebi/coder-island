@@ -15,6 +15,16 @@ class HookServer {
     var onPermissionRequest: ((PermissionRequest) -> Void)?
     var onAskQuestion: ((AskRequest) -> Void)?
 
+    /// Invoked when a non-interactive Claude Code event hook fires
+    /// (PreToolUse / PostToolUse / PostToolUseFailure / Stop / StopFailure /
+    /// UserPromptSubmit). Wired to AgentManager.applyHookEvent by AppDelegate.
+    var onLifecycleEvent: ((_ eventName: String,
+                            _ sessionId: String,
+                            _ agentId: String?,
+                            _ toolName: String?,
+                            _ toolInput: [String: Any]?,
+                            _ errorMessage: String?) -> Void)?
+
     private init() {}
 
     func start() {
@@ -167,6 +177,29 @@ class HookServer {
             DispatchQueue.main.async {
                 debugLog("[HookServer] Calling onAskQuestion callback")
                 self.onAskQuestion?(request)
+            }
+
+        case "/event":
+            // Generic lifecycle event relay for PreToolUse / PostToolUse /
+            // PostToolUseFailure / Stop / StopFailure / UserPromptSubmit.
+            // These don't need to wait for a UI decision — respond with an
+            // empty hook output immediately so Claude Code is never blocked.
+            let eventName = json["hook_event_name"] as? String ?? ""
+            let agentId = json["agent_id"] as? String
+            let toolName = json["tool_name"] as? String
+            let toolInput = json["tool_input"] as? [String: Any]
+            let errorMessage = (json["error"] as? String)
+                ?? (json["error_details"] as? String)
+                ?? (json["last_assistant_message"] as? String)
+
+            // Respond right away so the shell script / Claude Code unblock.
+            sendResponse(connection: connection, statusCode: 200, body: "{}")
+
+            let sid = sessionId  // captured
+            DispatchQueue.main.async {
+                self.onLifecycleEvent?(
+                    eventName, sid, agentId, toolName, toolInput, errorMessage
+                )
             }
 
         default:

@@ -11,6 +11,18 @@ class HookInstaller {
 
     private let permissionScript = "coder-island-permission"
     private let askScript = "coder-island-ask"
+    private let eventScript = "coder-island-event"
+
+    /// Hook event names for which the event relay script is registered.
+    /// Keep in sync with AgentManager.applyHookEvent.
+    private let eventHookNames: [String] = [
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "UserPromptSubmit",
+        "Stop",
+        "StopFailure",
+    ]
 
     private init() {}
 
@@ -100,14 +112,37 @@ class HookInstaller {
         fi
         """
 
+        // Generic event relay: forwards PreToolUse / PostToolUse /
+        // PostToolUseFailure / Stop / StopFailure / UserPromptSubmit payloads
+        // to HookServer /event. These are fire-and-forget from Claude Code's
+        // perspective — we reply with an empty `{}` hookSpecificOutput so
+        // Claude never blocks on us. Short timeout so a crashed app doesn't
+        // slow the user down.
+        let eventContent = """
+        #!/bin/bash
+        # Coder Island - Lifecycle Event Relay
+        INPUT=$(cat)
+        RESPONSE=$(echo "$INPUT" | curl -s -X POST http://localhost:\(HookServer.port)/event \\
+            -H "Content-Type: application/json" \\
+            -d @- \\
+            --max-time 3 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$RESPONSE" ]; then
+            echo "$RESPONSE"
+        fi
+        exit 0
+        """
+
         let permissionPath = hookDir.appendingPathComponent(permissionScript)
         let askPath = hookDir.appendingPathComponent(askScript)
+        let eventPath = hookDir.appendingPathComponent(eventScript)
 
         try? permissionContent.write(to: permissionPath, atomically: true, encoding: .utf8)
         try? askContent.write(to: askPath, atomically: true, encoding: .utf8)
+        try? eventContent.write(to: eventPath, atomically: true, encoding: .utf8)
 
         chmod(permissionPath.path, 0o755)
         chmod(askPath.path, 0o755)
+        chmod(eventPath.path, 0o755)
 
         debugLog("[HookInstaller] Scripts installed at \(hookDir.path)")
     }
@@ -134,6 +169,12 @@ class HookInstaller {
             "timeout": 300
         ]
 
+        let eventHook: [String: Any] = [
+            "type": "command",
+            "command": hookDir.appendingPathComponent(eventScript).path,
+            "timeout": 5
+        ]
+
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
         // PermissionRequest: ask hook for AskUserQuestion, permission hook for everything else.
@@ -150,14 +191,29 @@ class HookInstaller {
             "hooks": [permissionHook]
         ], at: 1)
         hooks["PermissionRequest"] = permEntries
-        // Clean up old PreToolUse and Elicitation entries
-        for key in ["PreToolUse", "Elicitation"] {
-            if var entries = hooks[key] as? [[String: Any]] {
-                entries.removeAll { entry in
-                    (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
-                }
-                if entries.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = entries }
+
+        // Register the event relay under each lifecycle hook key. Matcher `*`
+        // catches every tool for the tool-scoped events; Stop/StopFailure/
+        // UserPromptSubmit don't use matchers but the field is harmless.
+        for key in eventHookNames {
+            var entries = hooks[key] as? [[String: Any]] ?? []
+            // Drop any previous coder-island entries so repeat installs don't accumulate.
+            entries.removeAll { entry in
+                (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
             }
+            entries.append([
+                "matcher": "*",
+                "hooks": [eventHook]
+            ])
+            hooks[key] = entries
+        }
+
+        // Clean up legacy Elicitation entries (superseded).
+        if var entries = hooks["Elicitation"] as? [[String: Any]] {
+            entries.removeAll { entry in
+                (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
+            }
+            if entries.isEmpty { hooks.removeValue(forKey: "Elicitation") } else { hooks["Elicitation"] = entries }
         }
 
         settings["hooks"] = hooks
@@ -178,8 +234,8 @@ class HookInstaller {
         }
 
         if var hooks = settings["hooks"] as? [String: Any] {
-            // Remove our hooks from PermissionRequest, PreToolUse, Elicitation
-            for key in ["PermissionRequest", "PreToolUse", "Elicitation"] {
+            let keysToClean: [String] = ["PermissionRequest", "Elicitation"] + eventHookNames
+            for key in keysToClean {
                 if var entries = hooks[key] as? [[String: Any]] {
                     entries.removeAll { entry in
                         (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false

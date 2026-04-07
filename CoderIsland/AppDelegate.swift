@@ -67,6 +67,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.islandWindow?.viewModel.addAsk(request)
         }
 
+        server.onLifecycleEvent = { [weak self] eventName, sessionId, agentId, toolName, toolInput, errorMessage in
+            self?.agentManager.applyHookEvent(
+                eventName: eventName,
+                sessionId: sessionId,
+                agentId: agentId,
+                toolName: toolName,
+                toolInput: toolInput,
+                errorMessage: errorMessage
+            )
+        }
+
         // Keep hook scripts & settings.json in sync with the current app version.
         // If the user has the toggle on, re-run install() so any script/matcher
         // changes from an app update take effect without manual toggling.

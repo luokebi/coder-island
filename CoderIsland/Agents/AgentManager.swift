@@ -38,6 +38,98 @@ class AgentManager: ObservableObject {
         scanTimer = nil
     }
 
+    // MARK: - Hook event intake
+    //
+    // Entry point for Claude Code hook events (PreToolUse / PostToolUse /
+    // PostToolUseFailure / Stop / StopFailure / UserPromptSubmit). These
+    // give us real-time status updates that would otherwise be delayed by
+    // the jsonl polling scan. Called on the main queue from HookServer.
+    //
+    // Subagent events (with a non-empty `agentId`) are currently ignored
+    // here — main-agent-only updates keep the existing session model clean.
+    func applyHookEvent(
+        eventName: String,
+        sessionId: String,
+        agentId: String?,
+        toolName: String?,
+        toolInput: [String: Any]?,
+        errorMessage: String?
+    ) {
+        if agentId != nil && !(agentId ?? "").isEmpty {
+            // Subagent event — not tracked yet.
+            return
+        }
+        guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else {
+            // The session hasn't been discovered by the scan yet. Schedule
+            // one more scan pass so it shows up on the next tick.
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                self?.scanForSessions()
+            }
+            return
+        }
+        let session = sessions[idx]
+        let oldStatus = session.status
+        var reason = "hook=\(eventName)"
+
+        switch eventName {
+        case "PreToolUse":
+            if let toolName = toolName {
+                session.subtitle = describeToolUsage(tool: toolName, input: toolInput)
+                session.status = .running
+                reason += " tool=\(toolName)"
+            }
+        case "PostToolUse":
+            // Tool finished successfully — stay in running, let the next
+            // PreToolUse or Stop update the subtitle. Keep the prior subtitle
+            // so the UI doesn't flicker to "Thinking..." for sub-millisecond
+            // gaps between tools.
+            session.status = .running
+        case "PostToolUseFailure":
+            if let toolName = toolName {
+                session.subtitle = "Error: \(toolName)"
+                reason += " tool=\(toolName)"
+            } else {
+                session.subtitle = "Tool error"
+            }
+            session.status = .running
+        case "UserPromptSubmit":
+            session.subtitle = "Thinking..."
+            session.status = .running
+            // A new user prompt resets the completion-acknowledged marker so
+            // the next Stop event can trigger the completion sound again.
+            session.acknowledgedCompletionMarker = nil
+        case "Stop":
+            // Authoritative main-agent completion. Overrides the jsonl
+            // end_turn fallback which has historically misfired on
+            // sidechain subagent turns.
+            session.status = .justFinished
+            let marker = "hook-stop:\(sessionId):\(Date().timeIntervalSince1970)"
+            session.completionMarker = marker
+            // Play the completion sound — but only if we weren't already
+            // in a just-finished state (avoid double-firing from races).
+            if oldStatus.isActive {
+                SoundManager.shared.playTaskComplete()
+            }
+        case "StopFailure":
+            session.status = .error
+            if let msg = errorMessage, !msg.isEmpty {
+                session.subtitle = "Stop failed: \(msg)"
+            } else {
+                session.subtitle = "Stop failed"
+            }
+        default:
+            return
+        }
+
+        session.lastUpdated = Date()
+        traceStatusTransition(
+            event: "hook_event",
+            session: session,
+            oldStatus: oldStatus,
+            reason: reason
+        )
+    }
+
     func acknowledgeRecentCompletion(sessionId: String) {
         guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
 
@@ -417,7 +509,13 @@ class AgentManager: ObservableObject {
 
         let allLines = tail.components(separatedBy: "\n").filter { !$0.isEmpty }
 
-        // Collect recent user/assistant messages for status detection
+        // Collect recent user/assistant messages for status detection.
+        // IMPORTANT: skip isSidechain entries — these come from Task subagents
+        // sharing the same jsonl file. A subagent's `stop_reason: end_turn`
+        // would otherwise be mistaken for the main session completing and
+        // trigger a spurious "Just finished" status + completion sound.
+        // Reference: Claude Code 2.1.x src/utils/conversationRecovery.ts:424
+        // also skips sidechain when walking conversation tips.
         var recent: [(type: String, json: [String: Any])] = []
         for line in allLines.reversed() {
             guard let data = line.data(using: .utf8),
@@ -426,18 +524,21 @@ class AgentManager: ObservableObject {
                   type == "user" || type == "assistant" else {
                 continue
             }
+            if json["isSidechain"] as? Bool == true { continue }
             recent.append((type, json))
             if recent.count >= 8 { break }
         }
 
         guard !recent.isEmpty else { return SessionState(status: .running) }
 
-        // Find user's latest text message (scan all lines)
+        // Find user's latest text message (scan all lines). Skip sidechain
+        // (subagent prompts) for the same reason as the recent loop above.
         let lastUserMsg: String? = {
             for line in allLines.reversed() {
                 guard let data = line.data(using: .utf8),
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       json["type"] as? String == "user",
+                      json["isSidechain"] as? Bool != true,
                       let msg = json["message"] as? [String: Any] else { continue }
                 let content = msg["content"]
                 if let text = content as? String {
