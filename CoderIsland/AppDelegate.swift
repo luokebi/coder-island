@@ -15,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // settings code reads false until the user first toggles.
         UserDefaults.standard.register(defaults: [
             "smartSuppression": true,
+            "showUsageLimits": true,
         ])
 
         // Optional test hooks: run parser regression tests and log to

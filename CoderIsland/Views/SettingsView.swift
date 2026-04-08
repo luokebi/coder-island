@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage("askHooksEnabled") private var askHooksEnabled = false
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("smartSuppression") private var smartSuppression = true
+    @AppStorage("showUsageLimits") private var showUsageLimits = true
 
     @State private var isImportingSound = false
     @State private var importTarget: SoundManager.Event?
@@ -137,6 +138,13 @@ struct SettingsView: View {
                             subtitle: "Don't auto-expand when the agent's terminal is already in focus"
                         ) {
                             rightSwitch($smartSuppression)
+                        }
+                        rowDivider
+                        settingsRow(
+                            title: "Show usage limits",
+                            subtitle: "Display subscription usage limits in the notch panel header"
+                        ) {
+                            rightSwitch($showUsageLimits)
                         }
                     }
 

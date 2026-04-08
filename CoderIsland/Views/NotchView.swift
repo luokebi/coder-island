@@ -337,10 +337,15 @@ struct IslandView: View {
 
     // MARK: - Usage Buttons (top-left of expanded panel)
 
+    @AppStorage("showUsageLimits") private var showUsageLimits = true
+
+    @ViewBuilder
     private var usageButtonsOverlay: some View {
-        HStack(spacing: 6) {
-            usageButton(for: .claudeCode)
-            usageButton(for: .codex)
+        if showUsageLimits {
+            HStack(spacing: 6) {
+                usageButton(for: .claudeCode)
+                usageButton(for: .codex)
+            }
         }
     }
 
