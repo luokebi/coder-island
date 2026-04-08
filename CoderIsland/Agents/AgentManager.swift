@@ -260,6 +260,9 @@ class AgentManager: ObservableObject {
                         }
                         self.sessions[idx].lastUserMessage = session.lastUserMessage
                         self.sessions[idx].lastAssistantMessage = session.lastAssistantMessage
+                        if session.usageInfo != nil {
+                            self.sessions[idx].usageInfo = session.usageInfo
+                        }
 
                         // Bump lastUpdated when state actually changes
                         if effectiveStatus != oldStatus || session.subtitle != oldSubtitle {
@@ -399,6 +402,9 @@ class AgentManager: ObservableObject {
     private func scanClaudeCodeSessions() -> [AgentSession] {
         var sessions: [AgentSession] = []
         var knownPids: Set<Int32> = []
+        // Exclude any short-lived `claude` child we spawned for the
+        // /usage probe (otherwise it briefly appears as a phantom row).
+        let probePIDs = CLIStatusProbe.currentProbePIDs()
 
         // Part 1: Standard Claude Code sessions (from session files)
         let sessionsDir = claudeDir.appendingPathComponent("sessions")
@@ -412,6 +418,8 @@ class AgentManager: ObservableObject {
                       let sessionId = json["sessionId"] as? String else {
                     continue
                 }
+
+                if probePIDs.contains(Int32(pid)) { continue }
 
                 guard isProcessRunning(pid: Int32(pid)) else {
                     try? FileManager.default.removeItem(at: file)
@@ -450,7 +458,7 @@ class AgentManager: ObservableObject {
         // Part 2: Embedded Claude Code (Cursor, VS Code extensions)
         // These don't write session files, so discover via process scanning
         let embeddedPids = findEmbeddedClaudeProcesses()
-        for pid in embeddedPids where !knownPids.contains(pid) {
+        for pid in embeddedPids where !knownPids.contains(pid) && !probePIDs.contains(pid) {
             let cwd = getProcessCWD(pid: pid)
             let taskName = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Claude session"
             let terminal = detectTerminalForProcess(pid: pid)
@@ -527,6 +535,7 @@ class AgentManager: ObservableObject {
         var lastUserMessage: String?
         var lastAssistantMessage: String?
         var completionMarker: String?
+        var usageInfo: UsageInfo?
     }
 
     private func readSessionState(sessionId: String) -> SessionState {
@@ -983,8 +992,10 @@ class AgentManager: ObservableObject {
             getProcessArgs(pid: pid).contains("app-server")
         }
 
-        // 找出 CLI agent 进程（排除 app-server 和 Electron Helper）
+        // 找出 CLI agent 进程（排除 app-server / Electron Helper / 我们自己的 usage probe 子进程）
+        let probePIDs = CLIStatusProbe.currentProbePIDs()
         let cliAgentPids = allCodexPids.filter { pid in
+            if probePIDs.contains(pid) { return false }
             let args = getProcessArgs(pid: pid)
             return !args.contains("app-server") && !args.contains("Codex Helper")
         }
@@ -1012,7 +1023,8 @@ class AgentManager: ObservableObject {
                     workingDirectory: desktopThread.cwd,
                     startDate: desktopThread.createdAt,
                     lastUserMessage: state.lastUserMessage,
-                    lastAssistantMessage: state.lastAssistantMessage
+                    lastAssistantMessage: state.lastAssistantMessage,
+                    usageInfo: state.usageInfo
                 ))
                 usedSessionIds.insert(desktopThread.id)
             }
@@ -1094,7 +1106,8 @@ class AgentManager: ObservableObject {
                 startDate: nil,
                 lastUserMessage: state.lastUserMessage,
                 lastAssistantMessage: state.lastAssistantMessage,
-                completionMarker: state.completionMarker
+                completionMarker: state.completionMarker,
+                usageInfo: state.usageInfo
             ))
         }
 
@@ -1226,6 +1239,7 @@ class AgentManager: ObservableObject {
         var foundTaskComplete = false
         var lastTurnAbortReason: String?
         var lastTaskCompleteMarker: String?
+        var usageInfo: UsageInfo?
 
         func decided(status: AgentStatus, subtitle: String? = nil, reason: String, completionMarker: String? = nil) -> SessionState {
             traceParserDecision(
@@ -1240,7 +1254,8 @@ class AgentManager: ObservableObject {
                 subtitle: subtitle,
                 lastUserMessage: lastUserMessage,
                 lastAssistantMessage: lastAgentMessage,
-                completionMarker: completionMarker
+                completionMarker: completionMarker,
+                usageInfo: usageInfo
             )
         }
 
@@ -1271,6 +1286,45 @@ class AgentManager: ObservableObject {
                     }
                 } else if payloadType == "task_started" {
                     if lastEventType == nil { lastEventType = "task_started" }
+                } else if payloadType == "token_count" {
+                    // Codex writes one token_count event per model call.
+                    // Walking in reverse, the FIRST one we see is the most
+                    // recent — capture and don't overwrite.
+                    if usageInfo == nil,
+                       let info = payload["info"] as? [String: Any] {
+                        var u = UsageInfo()
+                        if let totals = info["total_token_usage"] as? [String: Any] {
+                            u.totalTokens = totals["total_tokens"] as? Int
+                            u.cachedInputTokens = totals["cached_input_tokens"] as? Int
+                        }
+                        if let last = info["last_token_usage"] as? [String: Any] {
+                            u.lastInputTokens = last["input_tokens"] as? Int
+                        }
+                        u.contextWindow = info["model_context_window"] as? Int
+
+                        if let limits = payload["rate_limits"] as? [String: Any] {
+                            u.planType = limits["plan_type"] as? String
+                            if let primary = limits["primary"] as? [String: Any] {
+                                u.primaryPercentUsed = primary["used_percent"] as? Double
+                                u.primaryWindowMinutes = primary["window_minutes"] as? Int
+                                if let resets = primary["resets_at"] as? Double {
+                                    u.primaryResetsAt = Date(timeIntervalSince1970: resets)
+                                } else if let resets = primary["resets_at"] as? Int {
+                                    u.primaryResetsAt = Date(timeIntervalSince1970: TimeInterval(resets))
+                                }
+                            }
+                            if let secondary = limits["secondary"] as? [String: Any] {
+                                u.secondaryPercentUsed = secondary["used_percent"] as? Double
+                                u.secondaryWindowMinutes = secondary["window_minutes"] as? Int
+                                if let resets = secondary["resets_at"] as? Double {
+                                    u.secondaryResetsAt = Date(timeIntervalSince1970: resets)
+                                } else if let resets = secondary["resets_at"] as? Int {
+                                    u.secondaryResetsAt = Date(timeIntervalSince1970: TimeInterval(resets))
+                                }
+                            }
+                        }
+                        usageInfo = u
+                    }
                 } else if payloadType == "user_message" || payloadType == "agent_message" {
                     let msg = payload["message"] as? String
                     if payloadType == "user_message" {

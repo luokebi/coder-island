@@ -16,6 +16,31 @@ enum AgentType: String, CaseIterable, Identifiable {
     }
 }
 
+/// Account-level usage snapshot extracted from a session transcript
+/// (currently only Codex — Claude needs a separate PTY probe).
+/// Tokens fields are cumulative for the SESSION; rate-limit fields are
+/// account-wide percentages of the user's plan window.
+struct UsageInfo: Equatable {
+    var totalTokens: Int?            // session running total (cumulative across turns)
+    var cachedInputTokens: Int?      // session running total of cache hits
+    var lastInputTokens: Int?        // input_tokens of the most recent turn — what
+                                     //   `last_input_tokens / contextWindow` actually
+                                     //   measures the current context window utilization
+    var contextWindow: Int?          // model context window size
+    /// 5-hour-window plan usage (% used). Codex `rate_limits.primary`.
+    var primaryPercentUsed: Double?
+    var primaryWindowMinutes: Int?
+    var primaryResetsAt: Date?
+    /// Weekly-window plan usage (% used). Codex `rate_limits.secondary`.
+    var secondaryPercentUsed: Double?
+    var secondaryWindowMinutes: Int?
+    var secondaryResetsAt: Date?
+    var planType: String?
+}
+
+// (UsageStatusParser implementations live in CoderIsland/Usage/UsageStatusParser.swift)
+
+
 enum AgentStatus: String {
     case idle
     case running
@@ -86,6 +111,7 @@ class AgentSession: ObservableObject, Identifiable {
     @Published var askOptions: [(label: String, description: String)]?
     @Published var lastUserMessage: String?
     @Published var lastAssistantMessage: String?
+    @Published var usageInfo: UsageInfo?
     @Published var cachedTabNumber: Int?  // Cache the found tab position
     var completionMarker: String?
     var acknowledgedCompletionMarker: String?
@@ -109,7 +135,8 @@ class AgentSession: ObservableObject, Identifiable {
         askOptions: [(label: String, description: String)]? = nil,
         lastUserMessage: String? = nil,
         lastAssistantMessage: String? = nil,
-        completionMarker: String? = nil
+        completionMarker: String? = nil,
+        usageInfo: UsageInfo? = nil
     ) {
         self.id = id
         self.agentType = agentType
@@ -125,6 +152,7 @@ class AgentSession: ObservableObject, Identifiable {
         self.lastUserMessage = lastUserMessage
         self.lastAssistantMessage = lastAssistantMessage
         self.completionMarker = completionMarker
+        self.usageInfo = usageInfo
     }
 
     func acknowledgeRecentCompletion() {

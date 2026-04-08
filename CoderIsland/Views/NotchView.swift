@@ -10,6 +10,9 @@ struct IslandView: View {
     @State private var isGearHovered = false
     @State private var isSettingsHovered = false
     @State private var isQuitHovered = false
+    @State private var hoveredUsageButton: AgentType?
+    @State private var usagePopoverDismissTimer: Timer?
+    @ObservedObject private var usageManager: UsageManager = .shared
 
     private let barColor = Color.black
     // Extra padding around the shape so corners + shadow are visible
@@ -225,6 +228,11 @@ struct IslandView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .top)
+        .overlay(alignment: .topLeading) {
+            usageButtonsOverlay
+                .padding(.top, 6)
+                .padding(.leading, 12)
+        }
         .overlay(alignment: .topTrailing) {
             ZStack(alignment: .topTrailing) {
                 if showControlMenu {
@@ -325,6 +333,234 @@ struct IslandView: View {
             .padding(.top, 6)
             .padding(.trailing, 12)
         }
+    }
+
+    // MARK: - Usage Buttons (top-left of expanded panel)
+
+    private var usageButtonsOverlay: some View {
+        HStack(spacing: 6) {
+            usageButton(for: .claudeCode)
+            usageButton(for: .codex)
+        }
+    }
+
+    @ViewBuilder
+    private func usageButton(for type: AgentType) -> some View {
+        let usage = aggregatedUsage(for: type)
+        let isHovering = hoveredUsageButton == type
+        let isAvailable = usage != nil
+        ZStack {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(isHovering ? Color.white.opacity(0.20) : Color.clear)
+            Group {
+                switch type {
+                case .claudeCode:
+                    ClaudePixelChar(isAnimating: false)
+                case .codex:
+                    CodexPixelChar(isAnimating: false)
+                }
+            }
+            .scaleEffect(0.9)
+            .opacity(isAvailable ? 1.0 : 0.35)
+        }
+        .frame(width: 26, height: 22)
+        .contentShape(RoundedRectangle(cornerRadius: 7))
+        .onHover { hovering in
+            handleUsageHover(type: type, hovering: hovering, source: .icon)
+        }
+        // Float the popover so it doesn't affect the HStack's layout
+        // (otherwise the popover's minWidth pushes the sibling button
+        // out of the bar). `.overlay` is sized independently of the
+        // anchor view; offset moves it below the button. The popover
+        // accepts hover events itself so the cursor can travel from
+        // the icon onto the card without dismissing it.
+        .overlay(alignment: .topLeading) {
+            if isHovering {
+                usagePopover(for: type, usage: usage)
+                    .fixedSize()
+                    .offset(x: 0, y: 28)
+                    .onHover { hovering in
+                        handleUsageHover(type: type, hovering: hovering, source: .popover)
+                    }
+            }
+        }
+    }
+
+    private enum UsageHoverSource { case icon, popover }
+
+    private func handleUsageHover(type: AgentType, hovering: Bool, source: UsageHoverSource) {
+        if hovering {
+            usagePopoverDismissTimer?.invalidate()
+            usagePopoverDismissTimer = nil
+            hoveredUsageButton = type
+            if source == .icon {
+                usageManager.refreshIfStale()
+            }
+        } else {
+            // Defer dismissal a tick so the cursor can travel between
+            // the icon and the popover without flicker. If a hover
+            // begins on the other element before the timer fires, the
+            // hovering branch above invalidates it.
+            usagePopoverDismissTimer?.invalidate()
+            usagePopoverDismissTimer = Timer.scheduledTimer(
+                withTimeInterval: 0.25, repeats: false
+            ) { _ in
+                DispatchQueue.main.async {
+                    hoveredUsageButton = nil
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func usagePopover(for type: AgentType, usage: UsageInfo?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header row
+            HStack(spacing: 6) {
+                Image(systemName: "speedometer")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+                Text("Rate limits remaining")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.92))
+                Spacer(minLength: 8)
+                refreshControl
+            }
+
+            if let usage = usage {
+                rateLimitRow(label: "5h",
+                             percentUsed: usage.primaryPercentUsed,
+                             resetsAt: usage.primaryResetsAt,
+                             windowMinutes: usage.primaryWindowMinutes,
+                             style: .time)
+                rateLimitRow(label: "Weekly",
+                             percentUsed: usage.secondaryPercentUsed,
+                             resetsAt: usage.secondaryResetsAt,
+                             windowMinutes: usage.secondaryWindowMinutes,
+                             style: .date)
+            } else {
+                Text(type == .claudeCode
+                     ? "No usage data yet"
+                     : "No active session yet")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(width: 240, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                )
+        )
+        .shadow(color: .black.opacity(0.45), radius: 10, y: 4)
+    }
+
+    @ViewBuilder
+    private var refreshControl: some View {
+        if usageManager.isRefreshing {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .controlSize(.mini)
+                .colorInvert()
+                .colorMultiply(.white)
+                .frame(width: 16, height: 16)
+        } else {
+            Button {
+                Task { await usageManager.refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Color.white.opacity(0.08))
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private enum ResetStyle { case time, date }
+
+    @ViewBuilder
+    private func rateLimitRow(
+        label: String,
+        percentUsed: Double?,
+        resetsAt: Date?,
+        windowMinutes: Int?,
+        style: ResetStyle
+    ) -> some View {
+        // Effective state: if the snapshot's resetsAt is already in the
+        // past, the window has rolled over since the last token_count
+        // event was written (Codex only writes a new event on the next
+        // API call). Treat as fully reset and project the next reset
+        // time forward by `windowMinutes`.
+        let now = Date()
+        let isPastReset: Bool = {
+            guard let resets = resetsAt else { return false }
+            return resets <= now
+        }()
+        let effectiveRemaining: Int? = {
+            guard let p = percentUsed else { return nil }
+            return isPastReset ? 100 : max(0, 100 - Int(p.rounded()))
+        }()
+        let effectiveReset: Date? = {
+            guard let resets = resetsAt else { return nil }
+            if !isPastReset { return resets }
+            // Project forward by full window cycles until > now.
+            guard let wm = windowMinutes, wm > 0 else { return resets }
+            let step = TimeInterval(wm * 60)
+            var next = resets
+            while next <= now { next.addTimeInterval(step) }
+            return next
+        }()
+
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white.opacity(0.92))
+            Spacer(minLength: 8)
+            if let r = effectiveRemaining {
+                Text("\(r)%")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.7))
+            } else {
+                Text("—")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            if let resets = effectiveReset {
+                Text(formatResetTimestamp(resets, style: style))
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(minWidth: 56, alignment: .trailing)
+            }
+        }
+    }
+
+    private func aggregatedUsage(for type: AgentType) -> UsageInfo? {
+        switch type {
+        case .claudeCode: return usageManager.claudeUsage
+        case .codex:      return usageManager.codexUsage
+        }
+    }
+
+    private func formatResetTimestamp(_ date: Date, style: ResetStyle) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        switch style {
+        case .time:
+            f.dateFormat = "h:mm a"  // 9:30 PM
+        case .date:
+            f.dateFormat = "MMM d"   // Apr 10
+        }
+        return f.string(from: date)
     }
 
     private var topReservedSpace: CGFloat {

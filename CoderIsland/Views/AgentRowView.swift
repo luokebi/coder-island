@@ -210,6 +210,7 @@ struct AgentRowView: View {
                 .lineLimit(1)
         }
     }
+
 }
 
 // MARK: - Pixel Status Icon

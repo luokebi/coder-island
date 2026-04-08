@@ -22,12 +22,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let summary = CodexParserTests.runAll()
             debugLog("[CodexParserTests] \(summary)")
         }
+        if env["CODER_ISLAND_DEBUG_USAGE_PROBE"] == "1" || args.contains("--debug-usage-probe") {
+            // Fire-and-log: dumps `claude /usage` and `codex /status` raw
+            // PTY output to ~/Library/Logs/CoderIsland/usage-probe-debug.log
+            // so we can hand-write the parser against the actual format.
+            Task.detached(priority: .background) {
+                await UsageProbeDebug.runOnce()
+            }
+        }
 
         requestAccessibilityPermissionIfNeeded()
         registerIslandActions()
         agentManager.startMonitoring()
         showIsland()
         startHookServer()
+        UsageManager.shared.start()
     }
 
     private func requestAccessibilityPermissionIfNeeded() {
