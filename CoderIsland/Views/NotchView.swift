@@ -250,7 +250,10 @@ struct IslandView: View {
         .frame(maxWidth: .infinity, alignment: .top)
         .overlay(alignment: .topLeading) {
             usageButtonsOverlay
-                .padding(.top, 6)
+                // On notch Macs, push past the camera cutout (~32pt).
+                // On non-notch the panel's top sits over the menu bar
+                // and a small fixed offset is enough.
+                .padding(.top, viewModel.hasNotch ? viewModel.topInset + 4 : 6)
                 .padding(.leading, 12)
         }
         .overlay(alignment: .topTrailing) {
@@ -350,7 +353,7 @@ struct IslandView: View {
                     }
                 }
             }
-            .padding(.top, 6)
+            .padding(.top, viewModel.hasNotch ? viewModel.topInset + 4 : 6)
             .padding(.trailing, 12)
         }
     }
@@ -589,12 +592,21 @@ struct IslandView: View {
     }
 
     private var topReservedSpace: CGFloat {
-        // Unified across notch / no-notch: the window already computes
-        // `barHeight = max(safeAreaInsets.top, menuBarHeight)` and stores
-        // it as `viewModel.topInset`. Subtract 8 so the first row sits a
-        // hair above the menu bar baseline (matches the previous notch
-        // value `notchHeight - 8`).
-        return max(0, viewModel.topInset - 8)
+        // On notch Macs, the camera cutout occupies the top ~32pt and
+        // we have to push the icon row below it — that means the
+        // session cards also need to start below the icon row, so
+        // reserve menu-bar space + icon row height.
+        // On non-notch Macs, the icon row visually fits inside the
+        // menu-bar area at the top of the panel (the panel sits above
+        // the real menu bar), so the original ~16pt of reserved space
+        // is enough — adding the icon-row height here would leave a
+        // visible empty band above the first card.
+        let menuBarSpace = max(0, viewModel.topInset - 8)
+        if viewModel.hasNotch {
+            let iconRowSpace: CGFloat = 26  // ~22pt icon + ~4pt breathing
+            return menuBarSpace + iconRowSpace
+        }
+        return menuBarSpace
     }
 
     private var emptyState: some View {
