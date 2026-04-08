@@ -655,27 +655,68 @@ class AgentManager: ObservableObject {
         let lastUserMsg: String? = {
             if let hit = scanForLastUserText(in: allLines) { return hit }
 
+            // Fallback: slide a non-overlapping 128KB window further back
+            // in the file, up to a 1MB total cap. Each iteration reads
+            // exactly the next 128KB chunk (NOT cumulative — the previous
+            // version re-read every byte from the new offset to EOF, so
+            // iteration 7 alone read ~1MB and the cumulative fallback
+            // touched ~4.5MB of bytes in the worst case). Peak transient
+            // allocation per iter is now ~128KB instead of ~1MB.
+            //
+            // Boundary correctness: we track `highWaterMark` as the
+            // absolute file offset just past the last `\n` we've seen.
+            // The first `\n` in the initial 128KB tail bounds it; each
+            // subsequent chunk reads `[chunkStart, highWaterMark)` so the
+            // chunk's last byte is the `\n` we already located, meaning
+            // no partial trailing line, and the previously-dropped
+            // boundary line is now fully captured inside this chunk.
             let chunkBytes: UInt64 = 131072
             let maxTotal: UInt64 = chunkBytes * 8  // ~1MB cap
-            var currentRead = bigReadSize
-            while currentRead < min(fileSize, maxTotal) {
-                let nextRead = min(currentRead + chunkBytes, min(fileSize, maxTotal))
-                handle.seek(toFileOffset: fileSize - nextRead)
-                var extData = handle.readDataToEndOfFile()
-                // If we didn't reach the file's actual start, the first line
-                // is partial (and possibly cuts a UTF-8 multi-byte). Drop
-                // everything before the first newline.
-                if nextRead < fileSize,
-                   let nlByte = extData.firstIndex(of: 0x0A) {
-                    extData = extData.subdata(in: (nlByte + 1)..<extData.count)
+
+            // Find the first '\n' offset within the initial tail to seed
+            // the high water mark. If the initial read started at file
+            // byte 0 (file fits in 128KB), there's nothing further to
+            // scan. If there's no '\n' at all in the initial read, the
+            // file is one giant line — fallback can't help.
+            guard fileSize > bigReadSize,
+                  let initialNlOffset = tailData.firstIndex(of: 0x0A) else {
+                return nil
+            }
+            var highWaterMark: UInt64 = (fileSize - bigReadSize) + UInt64(initialNlOffset) + 1
+            var bytesScanned: UInt64 = 0
+
+            while bytesScanned < (maxTotal - bigReadSize) && highWaterMark > 0 {
+                let chunkStart: UInt64 = highWaterMark > chunkBytes ? highWaterMark - chunkBytes : 0
+                let bytesToRead = Int(highWaterMark - chunkStart)
+                handle.seek(toFileOffset: chunkStart)
+                var extData = handle.readData(ofLength: bytesToRead)
+
+                // Drop the partial leading line if we're not at file start.
+                // Its end is the first `\n` in this chunk; bytes before it
+                // belong to a line whose start is even further left
+                // (next iter or beyond).
+                var droppedPrefix = 0
+                if chunkStart > 0, let nlIdx = extData.firstIndex(of: 0x0A) {
+                    droppedPrefix = nlIdx + 1
+                    extData = extData.subdata(in: droppedPrefix..<extData.count)
                 }
-                guard let ext = String(data: extData, encoding: .utf8) else {
-                    currentRead = nextRead
-                    continue
+
+                if let ext = String(data: extData, encoding: .utf8) {
+                    let extLines = ext.components(separatedBy: "\n").filter { !$0.isEmpty }
+                    if let hit = scanForLastUserText(in: extLines) { return hit }
                 }
-                let extLines = ext.components(separatedBy: "\n").filter { !$0.isEmpty }
-                if let hit = scanForLastUserText(in: extLines) { return hit }
-                currentRead = nextRead
+
+                bytesScanned += UInt64(bytesToRead)
+
+                if chunkStart == 0 {
+                    break  // reached file start
+                }
+                if droppedPrefix == 0 {
+                    // No `\n` found in this 128KB chunk → it's all one
+                    // pathological mega-line. Bail rather than loop.
+                    break
+                }
+                highWaterMark = chunkStart + UInt64(droppedPrefix)
             }
             return nil
         }()
@@ -1234,7 +1275,10 @@ class AgentManager: ObservableObject {
                     let msg = payload["message"] as? String
                     if payloadType == "user_message" {
                         if lastUserMessage == nil {
-                            lastUserMessage = msg.map { String($0.prefix(80)) }
+                            // Match Claude parser format: prefix with "You: "
+                            // so the row's middle line reads consistently
+                            // across both agent types.
+                            lastUserMessage = msg.map { "You: \(String($0.prefix(80)))" }
                         }
                         // user_message AFTER task_complete means new task started
                         if !foundTaskComplete {
