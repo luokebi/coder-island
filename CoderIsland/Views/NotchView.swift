@@ -107,14 +107,18 @@ struct IslandView: View {
                     }
                 }
 
-                // Task name: intrinsic width, capped so a very long name
-                // doesn't starve the subtitle. layoutPriority(1) means the
-                // name survives truncation before the subtitle does.
+                // Task name: intrinsic width up to a hard cap. Without the
+                // cap, a very long session title (e.g. a Codex thread named
+                // after the user's whole prompt) would push the subtitle
+                // and right-side indicator off the visible bar. maxWidth
+                // keeps the name within a predictable slot; layoutPriority
+                // lets it win space over the subtitle when both are present.
                 Text(displaySession.taskName)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(displaySession.status.isRecentlyFinished ? .gray : .white)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: 160, alignment: .leading)
                     .layoutPriority(1)
 
                 // Subtitle: hidden on notch Macs (it would render behind the
