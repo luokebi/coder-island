@@ -451,7 +451,7 @@ class HookServer {
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil)
         }
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let ts = AgentManager.iso8601TraceFormatter.string(from: Date())
         let sid = String(sessionId.prefix(8))
         let agent = agentId.map { " agent=\($0.prefix(8))" } ?? ""
         let tool = toolName.map { " tool=\($0)" } ?? ""
@@ -475,7 +475,7 @@ class HookServer {
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil)
         }
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let ts = AgentManager.iso8601TraceFormatter.string(from: Date())
         let line = "\(ts) \(path)\n\(body)\n---\n"
         guard let data = line.data(using: .utf8),
               let handle = try? FileHandle(forWritingTo: url) else { return }

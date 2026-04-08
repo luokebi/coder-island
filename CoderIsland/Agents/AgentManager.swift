@@ -28,6 +28,16 @@ class AgentManager: ObservableObject {
         return f
     }()
 
+    /// Formats trace-log timestamps (no fractional seconds, e.g.
+    /// "2026-04-08T14:30:45Z"). Cached because `ISO8601DateFormatter()`
+    /// is surprisingly expensive to construct (initializes ICU locale
+    /// data) and the trace path runs every 1-3 seconds per session.
+    static let iso8601TraceFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     func startMonitoring() {
         scanForSessions()
         rescheduleScanTimer(interval: 3.0)
@@ -154,7 +164,7 @@ class AgentManager: ObservableObject {
         session.status = .idle
         session.lastUpdated = Date()
 
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let ts = AgentManager.iso8601TraceFormatter.string(from: Date())
         let safeTask = session.taskName.replacingOccurrences(of: "\n", with: "\\n")
         let safeMarker = (marker ?? "-").replacingOccurrences(of: "\n", with: "\\n")
         traceLine("\(ts) [completion_acknowledged] agent=\(session.agentType.rawValue) id=\(session.id) task=\(safeTask) old=\(oldStatus.rawValue) new=idle marker=\(safeMarker)")
@@ -364,7 +374,7 @@ class AgentManager: ObservableObject {
         oldStatus: AgentStatus?,
         reason: String
     ) {
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let ts = AgentManager.iso8601TraceFormatter.string(from: Date())
         let safeTask = session.taskName.replacingOccurrences(of: "\n", with: "\\n")
         let safeSubtitle = (session.subtitle ?? "").replacingOccurrences(of: "\n", with: "\\n")
         let safeReason = reason.replacingOccurrences(of: "\n", with: "\\n")
@@ -378,7 +388,7 @@ class AgentManager: ObservableObject {
         subtitle: String?,
         reason: String
     ) {
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let ts = AgentManager.iso8601TraceFormatter.string(from: Date())
         let safeSubtitle = (subtitle ?? "").replacingOccurrences(of: "\n", with: "\\n")
         let safeReason = reason.replacingOccurrences(of: "\n", with: "\\n")
         traceLine("\(ts) [parser] parser=\(parser) source=\(source) status=\(status.rawValue) subtitle=\(safeSubtitle) reason=\(safeReason)")
@@ -1143,9 +1153,7 @@ class AgentManager: ObservableObject {
         let source = payload["source"] as? String
         var startDate: Date?
         if let ts = payload["timestamp"] as? String {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            startDate = formatter.date(from: ts)
+            startDate = AgentManager.iso8601Formatter.date(from: ts)
         }
 
         return CodexMeta(cwd: cwd, startDate: startDate, source: source)
