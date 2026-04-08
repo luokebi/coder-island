@@ -779,26 +779,21 @@ class AgentManager: ObservableObject {
                                 askOptions: options
                             )
                         }
-                        // Detect pending permission prompt: if this tool_use is the newest
-                        // decisive entry and the transcript hasn't progressed for a while,
-                        // Claude Code is likely waiting for the user to approve the tool call.
-                        // Non-Bash/Agent tools (Read/Write/Edit/Grep/Glob) normally complete
-                        // in milliseconds, so even a short stall is a strong signal. Bash and
-                        // Agent can legitimately run long, so we require a bigger gap there.
-                        if let tsStr = entry.json["timestamp"] as? String,
-                           let entryDate = AgentManager.iso8601Formatter.date(from: tsStr) {
-                            let age = Date().timeIntervalSince(entryDate)
-                            let threshold: TimeInterval = (toolName == "Bash" || toolName == "Agent") ? 6.0 : 2.0
-                            if age > threshold {
-                                let hint = describeToolUsage(tool: toolName, input: input)
-                                return decided(
-                                    status: .waiting,
-                                    subtitle: "Awaiting permission: \(hint)",
-                                    reason: "stale assistant tool_use age=\(Int(age))s tool=\(toolName) — likely awaiting permission"
-                                )
-                            }
-                        }
-
+                        // (Removed: time-based "Awaiting permission" heuristic.
+                        // It used to flip any tool_use older than 6s (Bash/Agent)
+                        // or 2s (other tools) to .waiting on the assumption that
+                        // long-stale tool_uses meant Claude was blocked on a
+                        // permission prompt. That assumption is wrong now that
+                        // we have real PermissionRequest hooks installed:
+                        //   - if a tool is genuinely awaiting permission, the
+                        //     /permission hook fires synchronously and the
+                        //     pendingPermissions banner pops up directly
+                        //   - if a Bash command legitimately takes 30+ seconds
+                        //     (xcodebuild, npm install, test runs) the old
+                        //     heuristic mislabeled it as "Awaiting permission"
+                        //     even though nothing was waiting on the user.
+                        // The hook path is now the only source of truth for
+                        // pending-permission detection.)
                         return decided(
                             status: .running,
                             subtitle: describeToolUsage(tool: toolName, input: input),
