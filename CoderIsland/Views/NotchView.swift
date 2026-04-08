@@ -18,6 +18,25 @@ struct IslandView: View {
     // Extra padding around the shape so corners + shadow are visible
     static let inset: CGFloat = 24
 
+    /// Compact bar content (icon, name, badge) is invisible to humans
+    /// in fullscreen-hidden mode. Note we use 0.001 instead of 0 —
+    /// SwiftUI disables hit testing on views with `.opacity(0)`, which
+    /// would silently break hover-to-expand. 0.001 is below the human
+    /// visibility threshold but keeps SwiftUI delivering events.
+    private var compactBarOpacity: Double {
+        if viewModel.isExpanded { return 0.001 }
+        if viewModel.fullscreenHidden { return 0.001 }
+        return 1
+    }
+
+    /// The bar background shape disappears completely in
+    /// fullscreen-hidden mode (the .background isn't part of the hit
+    /// path, so 0 here is fine).
+    private var barShapeOpacity: Double {
+        if viewModel.fullscreenHidden && !viewModel.isExpanded { return 0 }
+        return 1
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             compactContent
@@ -25,7 +44,7 @@ struct IslandView: View {
                 .onHover { hovering in
                     handleHoverChange(hovering)
                 }
-                .opacity(viewModel.isExpanded ? 0 : 1)
+                .opacity(compactBarOpacity)
 
             if viewModel.isExpanded {
                 expandedContent
@@ -50,6 +69,7 @@ struct IslandView: View {
                     color: (isHovered || viewModel.isExpanded) ? .black.opacity(0.5) : .clear,
                     radius: (isHovered || viewModel.isExpanded) ? 8 : 0, y: 3
                 )
+                .opacity(barShapeOpacity)
         )
     }
 

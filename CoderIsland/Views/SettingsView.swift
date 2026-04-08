@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("smartSuppression") private var smartSuppression = true
     @AppStorage("showUsageLimits") private var showUsageLimits = true
+    @AppStorage("hideInFullscreen") private var hideInFullscreen = false
 
     @State private var isImportingSound = false
     @State private var importTarget: SoundManager.Event?
@@ -145,6 +146,19 @@ struct SettingsView: View {
                             subtitle: "Display subscription usage limits in the notch panel header"
                         ) {
                             rightSwitch($showUsageLimits)
+                        }
+                        rowDivider
+                        settingsRow(
+                            title: "Hide in fullscreen",
+                            subtitle: "Hide Coder Island when any app is in fullscreen mode"
+                        ) {
+                            rightSwitch($hideInFullscreen)
+                                .onChange(of: hideInFullscreen) { _, _ in
+                                    NotificationCenter.default.post(
+                                        name: .coderIslandReevaluateFullscreen,
+                                        object: nil
+                                    )
+                                }
                         }
                     }
 

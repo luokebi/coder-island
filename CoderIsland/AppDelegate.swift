@@ -177,4 +177,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let coderIslandOpenSettings = Notification.Name("coderIslandOpenSettings")
     static let coderIslandQuitApp = Notification.Name("coderIslandQuitApp")
+    static let coderIslandReevaluateFullscreen = Notification.Name("coderIslandReevaluateFullscreen")
 }

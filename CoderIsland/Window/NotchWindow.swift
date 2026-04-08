@@ -2,6 +2,18 @@ import AppKit
 import SwiftUI
 import Combine
 
+// CoreGraphics private API for detecting fullscreen spaces. Stable
+// for ~10 macOS releases and used by every menu-bar utility (Bartender,
+// Hidden Bar, etc.). Public space-aware APIs don't exist.
+@_silgen_name("CGSMainConnectionID")
+private func CGSMainConnectionID() -> Int32
+
+@_silgen_name("CGSGetActiveSpace")
+private func CGSGetActiveSpace(_ cid: Int32) -> Int
+
+@_silgen_name("CGSSpaceGetType")
+private func CGSSpaceGetType(_ cid: Int32, _ sid: Int) -> Int
+
 class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
@@ -158,8 +170,19 @@ class NotchWindow: NSWindow {
         container.allowedHitRectProvider = { [weak self, weak container] in
             guard let self = self, let container = container else { return nil }
             if self.viewModel.isExpanded { return nil }
-            // Visible bar: top is flush to window top, has side+bottom insets.
             let b = container.bounds
+            // In "Hide in fullscreen" mode the visible bar is invisible
+            // — drop the horizontal inset so the user has a generous
+            // strip to hover into, not just the central bar width.
+            if self.viewModel.fullscreenHidden {
+                return NSRect(
+                    x: b.minX,
+                    y: b.minY + insetValue,
+                    width: b.width,
+                    height: b.height - insetValue
+                )
+            }
+            // Visible bar: top is flush to window top, has side+bottom insets.
             return NSRect(
                 x: b.minX + insetValue,
                 y: b.minY + insetValue,
@@ -216,6 +239,57 @@ class NotchWindow: NSWindow {
         orderFrontRegardless()
         setupClickOutsideMonitor()
         setupMouseTrackingMonitor()
+        setupFullscreenMonitor()
+        applyFullscreenHidingIfNeeded()
+    }
+
+    // MARK: - Hide in fullscreen
+
+    /// Returns true when the currently-active space is a fullscreen
+    /// space. Uses CoreGraphics's private `CGSSpaceGetType` — stable
+    /// for ~10 macOS releases and what every menu-bar utility uses.
+    /// The `frame == visibleFrame` heuristic doesn't work for us
+    /// because our notch window has `.canJoinAllSpaces` set, so the
+    /// menu bar height we observe stays constant across spaces.
+    private func currentSpaceIsFullscreen() -> Bool {
+        let sid = CGSGetActiveSpace(CGSMainConnectionID())
+        // Type 4 = fullscreen space; 0 = user, 2 = system. The "tile"
+        // (Split View) type is also reported as 4.
+        return CGSSpaceGetType(CGSMainConnectionID(), sid) == 4
+    }
+
+    private func setupFullscreenMonitor() {
+        // Active-space change fires when the user enters / leaves a
+        // fullscreen app or switches between Mission Control spaces.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyFullscreenHidingIfNeeded()
+        }
+        // Re-evaluate when the user toggles the setting.
+        NotificationCenter.default.addObserver(
+            forName: .coderIslandReevaluateFullscreen,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyFullscreenHidingIfNeeded()
+        }
+    }
+
+    private func applyFullscreenHidingIfNeeded() {
+        let enabled = UserDefaults.standard.bool(forKey: "hideInFullscreen")
+        let shouldHide = enabled && currentSpaceIsFullscreen()
+        // Don't touch alphaValue — we want hover events on the bar
+        // location to still expand the panel. The view-model flag
+        // tells NotchView to render the compact bar invisibly while
+        // keeping its hit area intact, so the user can still move
+        // their cursor to the notch and have it pop open.
+        if viewModel.fullscreenHidden != shouldHide {
+            viewModel.fullscreenHidden = shouldHide
+        }
+        debugLog("[hideFullscreen] enabled=\(enabled) fs=\(shouldHide)")
     }
 
     private func setupClickOutsideMonitor() {
@@ -280,10 +354,22 @@ class NotchWindow: NSWindow {
     }
 
     /// The visible bar lives at the top of the window frame, with left/right
-    /// and bottom insets of `IslandView.inset` for shadow headroom.
+    /// and bottom insets of `IslandView.inset` for shadow headroom. In
+    /// "Hide in fullscreen" mode the bar is invisible, so we drop the
+    /// horizontal inset to make the hover target easier to find — the
+    /// user is hunting for an invisible strip and shouldn't need pixel
+    /// precision.
     private func currentCompactBarRectInScreen() -> NSRect {
         let inset = IslandView.inset
         let f = self.frame
+        if viewModel.fullscreenHidden {
+            return NSRect(
+                x: f.minX,
+                y: f.minY + inset,
+                width: f.width,
+                height: f.height - inset
+            )
+        }
         return NSRect(
             x: f.minX + inset,
             y: f.minY + inset,
@@ -348,6 +434,12 @@ class NotchWindowViewModel: ObservableObject {
     @Published var isExpanded = false
     @Published var pendingPermissions: [PermissionRequest] = []
     @Published var pendingAsks: [AskRequest] = []
+    /// Set by `NotchWindow.applyFullscreenHidingIfNeeded` when the
+    /// "Hide in fullscreen" setting is on AND the active space is a
+    /// fullscreen one. NotchView reads this to render the compact
+    /// bar invisibly while keeping its hit area live so the user can
+    /// still hover-to-expand.
+    @Published var fullscreenHidden: Bool = false
     var notchWidth: CGFloat = 0   // 0 = no notch
     var notchHeight: CGFloat = 0
     /// Vertical space reserved at the top of the expanded panel so content
