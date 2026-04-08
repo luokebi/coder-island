@@ -536,7 +536,9 @@ class AgentManager: ObservableObject {
         return SessionState(status: .idle)
     }
 
-    private func parseLastMessage(from file: URL) -> SessionState {
+    /// Exposed as `internal` so ParserTests.swift can drive it with
+    /// synthetic jsonl fixtures and assert against the result.
+    func parseLastMessage(from file: URL) -> SessionState {
         guard let handle = try? FileHandle(forReadingFrom: file) else {
             return SessionState(status: .running)
         }
@@ -555,6 +557,35 @@ class AgentManager: ObservableObject {
         }
 
         let allLines = tail.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+        // Turn-end signal (authoritative): Claude Code writes a `system`
+        // entry with `subtype: "stop_hook_summary"` when the main agent's
+        // Stop hook has fired. If this entry is at the TAIL of the jsonl
+        // (no user/assistant entries after it), the turn is definitively
+        // ended. This handles the case where Claude Code sometimes fails
+        // to write the assistant's final `stop_reason: end_turn` field.
+        //
+        // We walk the tail from the end, skipping other system/meta
+        // entries. If we reach a stop_hook_summary before any
+        // user/assistant entry, turn ended.
+        let hasTrailingStopHookSummary: Bool = {
+            for line in allLines.reversed() {
+                guard let data = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                let type = json["type"] as? String
+                if type == "system" {
+                    if (json["subtype"] as? String) == "stop_hook_summary" {
+                        return true
+                    }
+                    continue
+                }
+                if type == "user" || type == "assistant" {
+                    if json["isSidechain"] as? Bool == true { continue }
+                    return false
+                }
+            }
+            return false
+        }()
 
         // Collect recent user/assistant messages for status detection.
         // IMPORTANT: skip isSidechain entries — these come from Task subagents
@@ -579,6 +610,8 @@ class AgentManager: ObservableObject {
         guard !recent.isEmpty else { return SessionState(status: .running) }
 
         // Find user's latest text message (scan all lines). Skip sidechain
+        // (we'll also use this for the stop-hook-summary short-circuit's
+        // lastUserMessage + lastAssistantMessage fields, hence moved above).
         // (subagent prompts) for the same reason as the recent loop above.
         let lastUserMsg: String? = {
             for line in allLines.reversed() {
@@ -633,6 +666,27 @@ class AgentManager: ObservableObject {
                 lastUserMessage: lastUserMsg,
                 lastAssistantMessage: lastAssistantMsg,
                 completionMarker: completionMarker
+            )
+        }
+
+        // Authoritative turn-end marker: Claude Code wrote a
+        // `system.stop_hook_summary` after the last user/assistant entry.
+        // This is stronger than stop_reason, which can be missing or wrong.
+        if hasTrailingStopHookSummary {
+            let lastAssistantEntry = recent.first(where: { $0.type == "assistant" })
+            let marker: String? = {
+                if let entry = lastAssistantEntry {
+                    if let uuid = entry.json["uuid"] as? String { return uuid }
+                    if let msg = entry.json["message"] as? [String: Any],
+                       let id = msg["id"] as? String { return id }
+                    if let ts = entry.json["timestamp"] as? String { return "claude-stop-hook:\(ts)" }
+                }
+                return nil
+            }()
+            return decided(
+                status: .justFinished,
+                reason: "trailing system stop_hook_summary — main agent Stop hook ran",
+                completionMarker: marker
             )
         }
 
@@ -693,6 +747,15 @@ class AgentManager: ObservableObject {
                         ?? ((entry.json["timestamp"] as? String).map { "claude-end-turn:\($0)" })
                     return decided(status: .justFinished, reason: "assistant stop_reason=end_turn", completionMarker: marker)
                 } else if stopReason == nil {
+                    // A null stop_reason doesn't mean "finished". Claude
+                    // Code writes intermediate text messages (e.g. "let
+                    // me check X" narration before a tool call) with
+                    // stop_reason=null too — skipping past is correct
+                    // here. Turn-end detection for the "stop_reason
+                    // never got written" edge case is handled further
+                    // up via the trailing `system subtype=stop_hook_summary`
+                    // check, which is the authoritative Claude Code
+                    // turn-end marker.
                     sawIntermediateAssistant = true
                     continue
                 } else if stopReason == "tool_use" {

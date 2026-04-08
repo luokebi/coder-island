@@ -95,6 +95,14 @@ class HookServer {
             let toolName = (json["tool_name"] as? String)
                 ?? (json["toolName"] as? String)
                 ?? "Unknown"
+            // Unified ingress log so the e2e test can verify permission
+            // requests landed alongside PreToolUse / PostToolUse events.
+            HookServer.traceEventIngress(
+                eventName: "PermissionRequest",
+                sessionId: sessionId,
+                agentId: nil,
+                toolName: toolName
+            )
             let toolInput = (json["tool_input"] as? [String: Any])
                 ?? (json["toolInput"] as? [String: Any])
                 ?? [:]
@@ -138,7 +146,8 @@ class HookServer {
             pendingRequests[requestId] = PendingRequest(
                 connection: connection,
                 type: .permission,
-                allowSuggestion: allowSuggestion
+                allowSuggestion: allowSuggestion,
+                originalToolInput: nil
             )
 
             DispatchQueue.main.async {
@@ -146,6 +155,13 @@ class HookServer {
             }
 
         case "/ask":
+            // Unified ingress log entry — same as /event and /permission.
+            HookServer.traceEventIngress(
+                eventName: "AskUserQuestion",
+                sessionId: sessionId,
+                agentId: nil,
+                toolName: "AskUserQuestion"
+            )
             let toolInput = json["tool_input"] as? [String: Any] ?? json
             var question = "Question from Claude"
             var header = ""
@@ -171,7 +187,12 @@ class HookServer {
                 options: options
             )
 
-            pendingRequests[requestId] = PendingRequest(connection: connection, type: .ask, allowSuggestion: nil)
+            pendingRequests[requestId] = PendingRequest(
+                connection: connection,
+                type: .ask,
+                allowSuggestion: nil,
+                originalToolInput: toolInput
+            )
             debugLog("[HookServer] Ask request created: id=\(requestId) q=\(question) opts=\(options.count)")
 
             DispatchQueue.main.async {
@@ -288,13 +309,66 @@ class HookServer {
     func respondToAsk(requestId: String, answer: String) {
         queue.async {
             guard let pending = self.pendingRequests.removeValue(forKey: requestId) else { return }
-            let escaped = answer
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            // Return both the result and the original answer for the hook script
-            let responseBody = "{\"result\":\"\(escaped)\"}"
-            self.sendResponse(connection: pending.connection, statusCode: 200, body: responseBody)
+            let body = HookServer.buildAskHookOutput(
+                originalToolInput: pending.originalToolInput,
+                answer: answer
+            )
+            self.sendResponse(connection: pending.connection, statusCode: 200, body: body)
         }
+    }
+
+    /// Build the JSON the AskUserQuestion permission hook returns to
+    /// Claude Code. The shape is the same as a regular permission "allow"
+    /// response, BUT we ALSO inject `updatedInput` which contains the
+    /// original `questions` array plus a new `answers` map keyed by
+    /// question text. Claude's AskUserQuestionTool.call() sees a
+    /// pre-populated `answers` field and skips its terminal fallback
+    /// UI, returning the user's choice directly.
+    ///
+    /// Reference: Claude Code 2.1.x
+    /// src/tools/AskUserQuestionTool/AskUserQuestionTool.tsx — `answers`
+    /// field on the input schema, line 56.
+    static func buildAskHookOutput(
+        originalToolInput: [String: Any]?,
+        answer: String
+    ) -> String {
+        // Extract the questions array. We need it back in updatedInput
+        // because Claude Code uses updatedInput as the *complete* new
+        // tool input — partial updates would lose the questions.
+        let questions = (originalToolInput?["questions"] as? [[String: Any]]) ?? []
+
+        // Build the answers map. We currently only handle the single-
+        // question case (which is the only one our UI supports). For
+        // multi-question prompts, all answers map to the same value —
+        // not great but better than crashing.
+        var answersMap: [String: String] = [:]
+        for q in questions {
+            if let questionText = q["question"] as? String {
+                answersMap[questionText] = answer
+            }
+        }
+
+        var updatedInput: [String: Any] = [:]
+        if !questions.isEmpty {
+            updatedInput["questions"] = questions
+        }
+        updatedInput["answers"] = answersMap
+
+        let output: [String: Any] = [
+            "hookSpecificOutput": [
+                "hookEventName": "PermissionRequest",
+                "decision": [
+                    "behavior": "allow",
+                    "updatedInput": updatedInput
+                ]
+            ]
+        ]
+
+        if let data = try? JSONSerialization.data(withJSONObject: output, options: []),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "{}"
     }
 
     /// Store the header for a pending ask so the hook can use it in the response
@@ -478,6 +552,11 @@ private struct PendingRequest {
     /// For permission requests, the suggestion payload we received — needed to
     /// build `updatedPermissions` when the user picks "allow and don't ask again".
     let allowSuggestion: PermissionSuggestion?
+    /// For ask requests, the original tool_input from Claude Code (containing
+    /// the `questions` array). Needed to construct the `updatedInput` field
+    /// of the hook response so Claude can pre-fill the AskUserQuestion tool's
+    /// `answers` field and skip the terminal fallback UI.
+    let originalToolInput: [String: Any]?
 }
 
 private enum RequestType {

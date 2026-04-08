@@ -8,6 +8,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Optional test hook: run parser regression tests and log to
+        // ~/Library/Logs/CoderIsland/parser-tests.log. Triggered by
+        // launching with either the env var CODER_ISLAND_RUN_PARSER_TESTS=1
+        // or the command-line arg --run-parser-tests.
+        let env = ProcessInfo.processInfo.environment
+        let args = ProcessInfo.processInfo.arguments
+        if env["CODER_ISLAND_RUN_PARSER_TESTS"] == "1" || args.contains("--run-parser-tests") {
+            let summary = ParserTests.runAll()
+            debugLog("[ParserTests] \(summary)")
+        }
+
         requestAccessibilityPermissionIfNeeded()
         registerIslandActions()
         agentManager.startMonitoring()
