@@ -250,10 +250,10 @@ struct IslandView: View {
         .frame(maxWidth: .infinity, alignment: .top)
         .overlay(alignment: .topLeading) {
             usageButtonsOverlay
-                // On notch Macs, push past the camera cutout (~32pt).
-                // On non-notch the panel's top sits over the menu bar
-                // and a small fixed offset is enough.
-                .padding(.top, viewModel.hasNotch ? viewModel.topInset + 4 : 6)
+                // Icons sit on the left edge, beside the camera cutout —
+                // they don't need to be pushed below it. Use the same
+                // small offset for notch and non-notch Macs.
+                .padding(.top, 6)
                 .padding(.leading, 12)
         }
         .overlay(alignment: .topTrailing) {
@@ -353,7 +353,7 @@ struct IslandView: View {
                     }
                 }
             }
-            .padding(.top, viewModel.hasNotch ? viewModel.topInset + 4 : 6)
+            .padding(.top, 6)
             .padding(.trailing, 12)
         }
     }
@@ -592,21 +592,12 @@ struct IslandView: View {
     }
 
     private var topReservedSpace: CGFloat {
-        // On notch Macs, the camera cutout occupies the top ~32pt and
-        // we have to push the icon row below it — that means the
-        // session cards also need to start below the icon row, so
-        // reserve menu-bar space + icon row height.
-        // On non-notch Macs, the icon row visually fits inside the
-        // menu-bar area at the top of the panel (the panel sits above
-        // the real menu bar), so the original ~16pt of reserved space
-        // is enough — adding the icon-row height here would leave a
-        // visible empty band above the first card.
-        let menuBarSpace = max(0, viewModel.topInset - 8)
-        if viewModel.hasNotch {
-            let iconRowSpace: CGFloat = 26  // ~22pt icon + ~4pt breathing
-            return menuBarSpace + iconRowSpace
-        }
-        return menuBarSpace
+        // Reserve the menu-bar / safe-area strip at the top so the first
+        // card clears the camera cutout on notch Macs and the menu-bar
+        // area on non-notch Macs. The icon row sits in this same band,
+        // off to the sides of the cutout, so no extra space is needed
+        // for it on either screen type.
+        return max(0, viewModel.topInset - 8)
     }
 
     private var emptyState: some View {
