@@ -8,6 +8,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register default values for any UserDefaults key that
+        // non-View code reads — `@AppStorage("foo") = true` only
+        // affects the SwiftUI binding's initial value, not the
+        // underlying UserDefaults, so without this our suppression /
+        // settings code reads false until the user first toggles.
+        UserDefaults.standard.register(defaults: [
+            "smartSuppression": true,
+        ])
+
         // Optional test hooks: run parser regression tests and log to
         // ~/Library/Logs/CoderIsland/parser-tests.log or
         // ~/Library/Logs/CoderIsland/codex-parser-tests.log. Triggered by

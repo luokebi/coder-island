@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage("soundTaskDoneEnabled") private var soundTaskDoneEnabled = true
     @AppStorage("askHooksEnabled") private var askHooksEnabled = false
     @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @AppStorage("smartSuppression") private var smartSuppression = true
 
     @State private var isImportingSound = false
     @State private var importTarget: SoundManager.Event?
@@ -126,6 +127,16 @@ struct SettingsView: View {
                                         }
                                     }
                                 }
+                        }
+                    }
+
+                    sectionTitle("Behaviour")
+                    settingsCard {
+                        settingsRow(
+                            title: "Smart suppression",
+                            subtitle: "Don't auto-expand when the agent's terminal is already in focus"
+                        ) {
+                            rightSwitch($smartSuppression)
                         }
                     }
 

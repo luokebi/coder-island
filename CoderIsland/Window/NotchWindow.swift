@@ -365,7 +365,7 @@ class NotchWindowViewModel: ObservableObject {
     func addPermission(_ request: PermissionRequest) {
         pendingPermissions.append(request)
         SoundManager.shared.playPermissionNeeded()
-        if !isExpanded {
+        if !isExpanded && !shouldSuppressAutoExpand(forSessionId: request.sessionId) {
             toggle() // Auto-expand on permission request
         }
         onStateChange?(isExpanded) // Resize window
@@ -374,10 +374,34 @@ class NotchWindowViewModel: ObservableObject {
     func addAsk(_ request: AskRequest) {
         pendingAsks.append(request)
         SoundManager.shared.playAskQuestion()
-        if !isExpanded {
+        if !isExpanded && !shouldSuppressAutoExpand(forSessionId: request.sessionId) {
             toggle()
         }
         onStateChange?(isExpanded)
+    }
+
+    /// "Smart suppression" — when the user is already looking at the
+    /// terminal window of the session that's asking, the notch popping
+    /// out adds noise on top of what they can already see. Skip the
+    /// auto-expand in that case (the request is still added to the
+    /// pending list and the sound still plays). Toggle is at
+    /// SettingsView → "Smart suppression".
+    private func shouldSuppressAutoExpand(forSessionId sessionId: String) -> Bool {
+        guard UserDefaults.standard.bool(forKey: "smartSuppression") else {
+            debugLog("[smartSuppress] disabled by setting")
+            return false
+        }
+        guard let session = agentManager?.sessions.first(where: { $0.id == sessionId }) else {
+            debugLog("[smartSuppress] no session match for sid=\(sessionId.prefix(8))")
+            return false
+        }
+        guard let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName else {
+            debugLog("[smartSuppress] no frontmost app")
+            return false
+        }
+        let suppress = (frontmost == session.terminalApp)
+        debugLog("[smartSuppress] sid=\(sessionId.prefix(8)) terminal=\(session.terminalApp) frontmost=\(frontmost) → suppress=\(suppress)")
+        return suppress
     }
 
     func allowPermission(_ id: String) {
