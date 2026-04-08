@@ -1,3 +1,11 @@
+# Testing CoderIsland — Claude Code session
+
+This doc covers tests for the **Claude Code** integration only
+(jsonl parser + Claude Code hook chain). For the parallel Codex
+session tests, see `docs/testing-codex.md`.
+
+---
+
 # Testing CoderIsland
 
 There are two complementary test layers. Both should pass before

@@ -28,6 +28,7 @@
 		A10000130000000000000001 /* mario_question.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A20000130000000000000002; };
 		A10000140000000000000001 /* mario_complete.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A20000140000000000000002; };
 		A10000150000000000000001 /* ParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000150000000000000001; };
+		A10000160000000000000001 /* CodexParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000160000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +43,7 @@
 		A20000090000000000000001 /* AgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus.swift; sourceTree = "<group>"; };
 		A200000A0000000000000001 /* AgentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentManager.swift; sourceTree = "<group>"; };
 		A20000150000000000000001 /* ParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParserTests.swift; sourceTree = "<group>"; };
+		A20000160000000000000001 /* CodexParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexParserTests.swift; sourceTree = "<group>"; };
 		A200000B0000000000000001 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
 		A200000C0000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A200000D0000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				A20000090000000000000001 /* AgentStatus.swift */,
 				A200000A0000000000000001 /* AgentManager.swift */,
 				A20000150000000000000001 /* ParserTests.swift */,
+				A20000160000000000000001 /* CodexParserTests.swift */,
 			);
 			path = Agents;
 			sourceTree = "<group>";
@@ -240,6 +243,7 @@
 				A10000090000000000000001 /* AgentStatus.swift in Sources */,
 				A100000A0000000000000001 /* AgentManager.swift in Sources */,
 				A10000150000000000000001 /* ParserTests.swift in Sources */,
+				A10000160000000000000001 /* CodexParserTests.swift in Sources */,
 				A100000B0000000000000001 /* SoundManager.swift in Sources */,
 				A100000D0000000000000001 /* CompactBarWindow.swift in Sources */,
 				A100000E0000000000000001 /* CompactBarView.swift in Sources */,
