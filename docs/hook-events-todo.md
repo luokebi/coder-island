@@ -24,6 +24,47 @@ registered under every lifecycle key above. It POSTs INPUT to
 Subagent events (payload has `agent_id`) are currently **dropped** in
 `AgentManager.applyHookEvent` — not yet modelled in the UI.
 
+## ✅ Codex coverage
+
+Source of truth: `codex-rs/app-server-protocol/schema/typescript/v2/HookEventName.ts`
+— Codex exposes only **5 hook events** (vs Claude Code's 26).
+
+Settings file: `~/.codex/hooks.json` (separate from Claude's
+`~/.claude/settings.json`). Toggle: `codex_hooks = true` in
+`~/.codex/config.toml` (Codex feature flag — users who installed
+vibe-island already have this enabled).
+
+| Event | Matcher | Handler | Notes |
+|---|---|---|---|
+| `SessionStart` | `*` | `coder-island-event` | Instant new-session discovery. Matcher is regex-capable; `source` field is "startup" or "resume" |
+| `UserPromptSubmit` | (ignored) | `coder-island-event` | Matcher field ignored by Codex runtime |
+| `PreToolUse` | `*` | `coder-island-event` | **Only fires for Bash tool** — `tool_name` in payload is always `"Bash"` |
+| `PostToolUse` | `*` | `coder-island-event` | Same Bash-only limitation |
+| `Stop` | (ignored) | `coder-island-event` | Payload carries `last_assistant_message` and `stop_hook_active` |
+
+Codex hook entries **coexist** with any third-party entries already in
+`hooks.json` (e.g. vibe-island). `HookInstaller.registerInCodexSettings`
+only replaces its own `coder-island` entries on each key.
+
+Payload field names match Claude Code's (`hook_event_name`,
+`session_id`, `cwd`, `transcript_path`, `tool_name`, `tool_input`,
+etc.) so `HookServer /event` and `AgentManager.applyHookEvent` handle
+both agents through the same code path. Codex's `session_id` is a
+`ThreadId` UUID that matches the id assigned to each session by
+`scanCodexSessions`.
+
+### Codex-specific gaps
+- **Tool-level hooks only cover Bash.** File edits, writes, reads,
+  web fetches, etc. fire no PreToolUse / PostToolUse — their tool
+  activity has to come from jsonl tail parsing of
+  `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (already handled by
+  `parseCodexState`).
+- **No permission-request hook.** Codex's permission flow is entirely
+  internal; we can't mirror Claude Code's Allow/Deny banner there.
+- **No subagent events.** Codex doesn't expose SubagentStop / nested
+  agent lifecycle.
+- **No compact / elicitation / failure-variant events.**
+
 ## ⬜ Not yet intercepted
 
 ### 🟡 Medium value — solid wins if/when we need them

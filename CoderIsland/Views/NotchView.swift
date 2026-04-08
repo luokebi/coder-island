@@ -42,10 +42,11 @@ struct IslandView: View {
                 .fill(barColor)
                 .padding(.horizontal, Self.inset)
                 .padding(.bottom, Self.inset)
-                // Shadow — black only
+                // Shadow — black only, smaller/softer than before so it
+                // doesn't bleed too far into the wallpaper around the panel.
                 .shadow(
-                    color: (isHovered || viewModel.isExpanded) ? .black.opacity(0.8) : .clear,
-                    radius: (isHovered || viewModel.isExpanded) ? 12 : 0, y: 4
+                    color: (isHovered || viewModel.isExpanded) ? .black.opacity(0.5) : .clear,
+                    radius: (isHovered || viewModel.isExpanded) ? 8 : 0, y: 3
                 )
         )
     }

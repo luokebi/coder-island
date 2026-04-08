@@ -72,6 +72,12 @@ class AgentManager: ObservableObject {
         var reason = "hook=\(eventName)"
 
         switch eventName {
+        case "SessionStart":
+            // Codex-only event (Claude Code doesn't fire it on our side).
+            // Session was already discovered — the guard above schedules a
+            // scan if not. Nothing to mutate here; keep the session as-is
+            // and let the periodic scan fill in jsonl-derived state.
+            break
         case "PreToolUse":
             if let toolName = toolName {
                 session.subtitle = describeToolUsage(tool: toolName, input: toolInput)

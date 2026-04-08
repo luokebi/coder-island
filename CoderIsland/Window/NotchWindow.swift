@@ -18,7 +18,6 @@ class TransparentContainerView: NSView {
     var allowedHitRectProvider: (() -> NSRect?)?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // `point` arrives in the superview's coordinate space; convert to ours.
         let local = convert(point, from: superview)
         if let allowed = allowedHitRectProvider?(), !allowed.contains(local) {
             return nil
@@ -59,6 +58,8 @@ private extension NSView {
 class NotchWindow: NSWindow {
     private let agentManager: AgentManager
     private var clickOutsideMonitor: Any?
+    private var mouseMovedGlobalMonitor: Any?
+    private var mouseMovedLocalMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
     private let panelWidth: CGFloat = 500
     private var compactBarWidth: CGFloat = 340
@@ -131,7 +132,11 @@ class NotchWindow: NSWindow {
         self.isMovableByWindowBackground = false
         self.hidesOnDeactivate = false
         self.acceptsMouseMovedEvents = true
-        self.ignoresMouseEvents = false
+        // Start in "click-through" mode — the TransparentContainerView's
+        // tracking area flips this to false only when the cursor enters
+        // the visible bar rect, so clicks outside the notch reach the
+        // window/app behind us.
+        self.ignoresMouseEvents = true
 
         // Save notch camera region info for SwiftUI layout.
         viewModel.notchWidth = notchWidth
@@ -175,7 +180,14 @@ class NotchWindow: NSWindow {
 
         // Watch for expand/collapse to resize window
         viewModel.onStateChange = { [weak self] expanded in
-            self?.animateWindowResize(expanded: expanded)
+            guard let self = self else { return }
+            // Expanded: entire window is interactive. Compact: defer to
+            // the tracking area, which will flip this back to true when
+            // the cursor leaves the bar rect.
+            if expanded {
+                self.ignoresMouseEvents = false
+            }
+            self.animateWindowResize(expanded: expanded)
         }
 
         // Also resize when sessions change (e.g. ask card appears/disappears)
@@ -195,6 +207,7 @@ class NotchWindow: NSWindow {
         alphaValue = 1
         orderFrontRegardless()
         setupClickOutsideMonitor()
+        setupMouseTrackingMonitor()
     }
 
     private func setupClickOutsideMonitor() {
@@ -209,6 +222,66 @@ class NotchWindow: NSWindow {
                 self.viewModel.collapse()
             }
         }
+    }
+
+    /// Dynamically toggle `ignoresMouseEvents` based on whether the cursor
+    /// is over the visible bar rect. Needed because a borderless transparent
+    /// window otherwise captures clicks in its entire frame, including the
+    /// 24pt inset padding around the notch. NSTrackingArea doesn't work here
+    /// — `ignoresMouseEvents = true` also blocks tracking area events — so
+    /// we poll the global mouse position via NSEvent monitors.
+    private func setupMouseTrackingMonitor() {
+        // Global monitor fires when cursor moves outside any focused
+        // window of our app. Local fires when moving over our own window.
+        // Together they cover all cases.
+        let handler: (NSEvent?) -> Void = { [weak self] _ in
+            self?.syncIgnoresMouseEventsFromCursor()
+        }
+        if mouseMovedGlobalMonitor == nil {
+            mouseMovedGlobalMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.mouseMoved]
+            ) { event in handler(event) }
+        }
+        if mouseMovedLocalMonitor == nil {
+            mouseMovedLocalMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.mouseMoved]
+            ) { event in
+                handler(event)
+                return event
+            }
+        }
+        // Initialize once — if the cursor is already sitting over the bar
+        // at launch, the first event might be delayed until the user moves.
+        syncIgnoresMouseEventsFromCursor()
+    }
+
+    /// Compute the visible bar rect in screen coordinates (matching the
+    /// NotchShape render area) and set ignoresMouseEvents accordingly.
+    /// When expanded, always stay interactive.
+    private func syncIgnoresMouseEventsFromCursor() {
+        if viewModel.isExpanded {
+            if self.ignoresMouseEvents { self.ignoresMouseEvents = false }
+            return
+        }
+        let mouse = NSEvent.mouseLocation  // screen coordinates
+        let barRect = currentCompactBarRectInScreen()
+        let shouldIgnore = !barRect.contains(mouse)
+        if self.ignoresMouseEvents != shouldIgnore {
+            self.ignoresMouseEvents = shouldIgnore
+        }
+    }
+
+    /// The visible bar lives at the top of the window frame, with left/right
+    /// and bottom insets of `IslandView.inset` for shadow headroom.
+    private func currentCompactBarRectInScreen() -> NSRect {
+        let inset = IslandView.inset
+        let f = self.frame
+        return NSRect(
+            x: f.minX + inset,
+            y: f.minY + inset,
+            width: f.width - inset * 2,
+            height: f.height - inset
+        )
     }
 
     private func animateWindowResize(expanded: Bool) {
@@ -251,6 +324,12 @@ class NotchWindow: NSWindow {
 
     deinit {
         if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = mouseMovedGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = mouseMovedLocalMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }

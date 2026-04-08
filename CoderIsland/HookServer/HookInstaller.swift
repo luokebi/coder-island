@@ -13,7 +13,8 @@ class HookInstaller {
     private let askScript = "coder-island-ask"
     private let eventScript = "coder-island-event"
 
-    /// Hook event names for which the event relay script is registered.
+    /// Claude Code lifecycle hook event names. The event relay script is
+    /// registered under each of these keys in ~/.claude/settings.json.
     /// Keep in sync with AgentManager.applyHookEvent.
     private let eventHookNames: [String] = [
         "PreToolUse",
@@ -24,11 +25,32 @@ class HookInstaller {
         "StopFailure",
     ]
 
+    /// Codex hook event names (from codex-rs/app-server-protocol HookEventName).
+    /// Codex only exposes 5 events total — keys are PascalCase in the JSON
+    /// hooks file (same as Claude). PreToolUse/PostToolUse currently only
+    /// fire for the Bash tool inside Codex.
+    private let codexEventHookNames: [String] = [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "Stop",
+    ]
+
+    /// Path to Codex's hook configuration (separate from Claude Code's
+    /// ~/.claude/settings.json). Codex reads this when `codex_hooks = true`
+    /// is set in ~/.codex/config.toml.
+    private var codexHooksFileURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/hooks.json")
+    }
+
     private init() {}
 
     func install() {
         createHookScripts()
         registerInClaudeSettings()
+        registerInCodexSettings()
     }
 
     private func createHookScripts() {
@@ -230,6 +252,7 @@ class HookInstaller {
 
         guard let data = try? Data(contentsOf: settingsPath),
               var settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            unregisterFromCodexSettings()
             return
         }
 
@@ -250,6 +273,87 @@ class HookInstaller {
         if let writeData = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) {
             try? writeData.write(to: settingsPath)
             debugLog("[HookInstaller] Hooks removed from settings.json")
+        }
+
+        unregisterFromCodexSettings()
+    }
+
+    // MARK: - Codex hook registration
+
+    /// Append coder-island's event relay entries to ~/.codex/hooks.json while
+    /// preserving any existing entries (e.g. vibe-island hooks installed by
+    /// another app). Safe to call repeatedly — we dedupe by command path.
+    private func registerInCodexSettings() {
+        let hooksPath = codexHooksFileURL
+        let dir = hooksPath.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        var root: [String: Any] = [:]
+        if let data = try? Data(contentsOf: hooksPath),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            root = existing
+        }
+
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+
+        let eventHook: [String: Any] = [
+            "type": "command",
+            "command": hookDir.appendingPathComponent(eventScript).path,
+            "timeout": 5
+        ]
+
+        for key in codexEventHookNames {
+            var entries = hooks[key] as? [[String: Any]] ?? []
+            // Remove any previous coder-island entries under this key so
+            // repeat installs don't accumulate duplicates. vibe-island and
+            // other third-party entries are preserved.
+            entries.removeAll { entry in
+                (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
+            }
+            // PreToolUse / PostToolUse / SessionStart support matchers
+            // (regex); UserPromptSubmit and Stop ignore the field. Use "*"
+            // for the matcher-aware events and omit it otherwise — matches
+            // Codex's own documented shape.
+            var entry: [String: Any] = ["hooks": [eventHook]]
+            if key == "PreToolUse" || key == "PostToolUse" || key == "SessionStart" {
+                entry["matcher"] = "*"
+            }
+            entries.append(entry)
+            hooks[key] = entries
+        }
+
+        root["hooks"] = hooks
+
+        if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: hooksPath)
+            debugLog("[HookInstaller] Codex hooks registered in \(hooksPath.path)")
+        }
+    }
+
+    /// Remove coder-island's entries from ~/.codex/hooks.json while leaving
+    /// third-party entries (vibe-island etc.) alone.
+    private func unregisterFromCodexSettings() {
+        let hooksPath = codexHooksFileURL
+        guard let data = try? Data(contentsOf: hooksPath),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        if var hooks = root["hooks"] as? [String: Any] {
+            for key in codexEventHookNames {
+                if var entries = hooks[key] as? [[String: Any]] {
+                    entries.removeAll { entry in
+                        (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
+                    }
+                    if entries.isEmpty { hooks.removeValue(forKey: key) } else { hooks[key] = entries }
+                }
+            }
+            if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
+        }
+
+        if let writeData = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
+            try? writeData.write(to: hooksPath)
+            debugLog("[HookInstaller] Codex hooks removed from \(hooksPath.path)")
         }
     }
 
