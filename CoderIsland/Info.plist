@@ -5,12 +5,14 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>CoderIsland</string>
+	<string>Coder Island</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.coderisland.app</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
+	<string>Coder Island</string>
+	<key>CFBundleDisplayName</key>
 	<string>Coder Island</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>

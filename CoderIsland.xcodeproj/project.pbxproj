@@ -60,7 +60,7 @@
 		A200000C0000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A200000D0000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A200000E0000000000000001 /* Entitlements.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.entitlements; sourceTree = "<group>"; };
-		A200000F0000000000000001 /* CoderIsland.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CoderIsland.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000F0000000000000001 /* Coder Island.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Coder Island.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A200000D0000000000000002 /* CompactBarWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactBarWindow.swift; sourceTree = "<group>"; };
 		A200000E0000000000000002 /* CompactBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactBarView.swift; sourceTree = "<group>"; };
 		A200000F0000000000000002 /* HookServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookServer.swift; sourceTree = "<group>"; };
@@ -147,7 +147,7 @@
 		A40000060000000000000001 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A200000F0000000000000001 /* CoderIsland.app */,
+				A200000F0000000000000001 /* Coder Island.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -216,7 +216,7 @@
 			);
 			name = CoderIsland;
 			productName = CoderIsland;
-			productReference = A200000F0000000000000001 /* CoderIsland.app */;
+			productReference = A200000F0000000000000001 /* Coder Island.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -360,7 +360,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.coderisland.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Coder Island";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -382,7 +382,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.coderisland.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Coder Island";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
