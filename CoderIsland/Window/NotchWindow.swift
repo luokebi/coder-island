@@ -81,14 +81,122 @@ class NotchWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// Find the built-in display (has notch), or fall back to main screen
-    private static func preferredScreen() -> NSScreen {
-        // Prefer the built-in screen (the one with the notch)
+    /// `UserDefaults` key for the user's preferred display. Stored as
+    /// the CGDirectDisplayID (UInt32 fits in Int). 0 = "Automatic".
+    static let preferredDisplayKey = "preferredDisplayID"
+
+    /// Picks the screen the notch should live on:
+    ///   1. If the user has set a specific display in Settings, use it.
+    ///   2. Otherwise prefer the built-in screen (the one with the
+    ///      camera notch / safe-area inset).
+    ///   3. Fall back to the menu-bar screen.
+    ///
+    /// If a stored display ID points at a screen that's no longer
+    /// connected, reset the stored value to 0 ("Automatic"). This
+    /// makes the Settings dropdown reflect the new state and prevents
+    /// the notch from teleporting back to the stale choice if the
+    /// display is later reconnected — the user has to opt in again.
+    static func preferredScreen() -> NSScreen {
+        let stored = UserDefaults.standard.integer(forKey: preferredDisplayKey)
+        if stored != 0 {
+            for screen in NSScreen.screens {
+                if let displayID = screen.deviceDescription[
+                    NSDeviceDescriptionKey("NSScreenNumber")
+                ] as? CGDirectDisplayID,
+                   Int(displayID) == stored {
+                    return screen
+                }
+            }
+            // Stored ID is gone — reset to Automatic.
+            UserDefaults.standard.set(0, forKey: preferredDisplayKey)
+        }
         if let builtIn = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) {
             return builtIn
         }
-        // Fall back to the screen with the menu bar
         return NSScreen.screens.first ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    /// Returns (id, label) tuples for every connected display, with
+    /// "Automatic" prepended. Used by the Settings picker.
+    static func availableDisplayChoices() -> [(id: Int, label: String)] {
+        var choices: [(id: Int, label: String)] = [(0, "Automatic")]
+        for screen in NSScreen.screens {
+            guard let displayID = screen.deviceDescription[
+                NSDeviceDescriptionKey("NSScreenNumber")
+            ] as? CGDirectDisplayID else { continue }
+            choices.append((Int(displayID), screen.localizedName))
+        }
+        return choices
+    }
+
+    /// Re-evaluate `preferredScreen()` and move the existing window to
+    /// the new screen, recomputing notch geometry. Cheaper and less
+    /// risky than tearing down + rebuilding the whole window — keeps
+    /// pendingPermissions, pendingAsks, isExpanded etc. intact across
+    /// the move.
+    func moveToCurrentlyPreferredScreen() {
+        let screen = NotchWindow.preferredScreen()
+        // No-op if we're already on the right screen.
+        if let current = self.screen, current == screen {
+            return
+        }
+
+        // Recompute the per-screen notch geometry. Mirrors the same
+        // logic init() uses: notch screens get a bar sized to clear
+        // the camera cutout; non-notch screens use the class default
+        // (which is wider than notch ones because nothing constrains
+        // it).
+        let hasNotch = screen.safeAreaInsets.top > 0
+        var notchWidth: CGFloat = 0
+        var notchHeight: CGFloat = 0
+        if hasNotch {
+            notchHeight = screen.safeAreaInsets.top
+            if let leftArea = screen.auxiliaryTopLeftArea,
+               let rightArea = screen.auxiliaryTopRightArea {
+                notchWidth = rightArea.minX - leftArea.maxX
+            } else {
+                notchWidth = 180
+            }
+            compactBarWidth = max(250, notchWidth + 80)
+        } else {
+            compactBarWidth = 340
+        }
+
+        let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
+        let barHeight = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
+
+        viewModel.notchWidth = notchWidth
+        viewModel.notchHeight = notchHeight
+        viewModel.topInset = barHeight
+
+        // Compute the target frame on the NEW screen directly. We
+        // can't reuse animateWindowResize because it reads self.screen,
+        // which still reflects the old screen until setFrame moves us.
+        let inset = IslandView.inset
+        let expanded = viewModel.isExpanded
+        let targetWidth: CGFloat
+        let targetHeight: CGFloat
+        if expanded {
+            targetWidth = panelWidth + inset * 2
+            // Mirror animateWindowResize's height measurement so the
+            // expanded panel ends up the right height on the new screen.
+            let sizingView = NSHostingView(rootView: hostingView.rootView)
+            sizingView.frame.size.width = targetWidth
+            targetHeight = min(sizingView.fittingSize.height, screen.frame.height * 0.7)
+        } else {
+            targetWidth = compactBarWidth + inset * 2
+            targetHeight = barHeight + inset
+        }
+        let nudge: CGFloat = (!expanded && hasNotch) ? 11 : 0
+        let x = screen.frame.midX - targetWidth / 2 + nudge
+        let y = screen.frame.maxY - targetHeight
+        let newFrame = NSRect(x: x, y: y, width: targetWidth, height: targetHeight)
+        // Hard-jump (no animation) — flying a window across displays
+        // looks bad and animateFrame doesn't handle multi-screen well.
+        setFrame(newFrame, display: true, animate: false)
+
+        // Re-evaluate fullscreen hide for the new screen.
+        applyFullscreenHidingIfNeeded()
     }
 
     init(agentManager: AgentManager) {
@@ -275,6 +383,23 @@ class NotchWindow: NSWindow {
             queue: .main
         ) { [weak self] _ in
             self?.applyFullscreenHidingIfNeeded()
+        }
+        // Re-evaluate when the user picks a different display in
+        // Settings, OR when displays are plugged / unplugged
+        // (didChangeScreenParameters fires for both).
+        NotificationCenter.default.addObserver(
+            forName: .coderIslandReevaluateDisplay,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.moveToCurrentlyPreferredScreen()
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.moveToCurrentlyPreferredScreen()
         }
     }
 

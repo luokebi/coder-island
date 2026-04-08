@@ -15,6 +15,8 @@ struct SettingsView: View {
     @AppStorage("smartSuppression") private var smartSuppression = true
     @AppStorage("showUsageLimits") private var showUsageLimits = true
     @AppStorage("hideInFullscreen") private var hideInFullscreen = false
+    @AppStorage("preferredDisplayID") private var preferredDisplayID = 0
+    @State private var displayChoices: [(id: Int, label: String)] = []
 
     @State private var isImportingSound = false
     @State private var importTarget: SoundManager.Event?
@@ -129,6 +131,13 @@ struct SettingsView: View {
                                         }
                                     }
                                 }
+                        }
+                        rowDivider
+                        settingsRow(
+                            title: "Display",
+                            subtitle: "Which screen the notch lives on"
+                        ) {
+                            displayMenu
                         }
                     }
 
@@ -351,6 +360,54 @@ struct SettingsView: View {
 
     private var selectedPreset: SoundManager.Preset {
         SoundManager.Preset(rawValue: soundPreset) ?? .mario
+    }
+
+    private var displayMenu: some View {
+        let currentLabel = displayChoices.first { $0.id == preferredDisplayID }?.label
+            ?? "Automatic"
+        return Menu {
+            ForEach(displayChoices, id: \.id) { choice in
+                Button {
+                    preferredDisplayID = choice.id
+                    NotificationCenter.default.post(
+                        name: .coderIslandReevaluateDisplay,
+                        object: nil
+                    )
+                } label: {
+                    HStack {
+                        Text(choice.label)
+                        if choice.id == preferredDisplayID {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(currentLabel)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white.opacity(0.95))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.10))
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .onAppear { displayChoices = NotchWindow.availableDisplayChoices() }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didChangeScreenParametersNotification
+        )) { _ in
+            displayChoices = NotchWindow.availableDisplayChoices()
+        }
     }
 
     private var presetMenu: some View {
