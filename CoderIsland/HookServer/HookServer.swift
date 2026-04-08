@@ -35,6 +35,7 @@ class HookServer {
                 self?.handleConnection(conn)
             }
             listener?.start(queue: queue)
+            startExpirySweeper()
             debugLog("[HookServer] Started on port \(HookServer.port)")
         } catch {
             debugLog("[HookServer] Failed to start: \(error)")
@@ -147,7 +148,8 @@ class HookServer {
                 connection: connection,
                 type: .permission,
                 allowSuggestion: allowSuggestion,
-                originalToolInput: nil
+                originalToolInput: nil,
+                createdAt: Date()
             )
 
             DispatchQueue.main.async {
@@ -191,7 +193,8 @@ class HookServer {
                 connection: connection,
                 type: .ask,
                 allowSuggestion: nil,
-                originalToolInput: toolInput
+                originalToolInput: toolInput,
+                createdAt: Date()
             )
             debugLog("[HookServer] Ask request created: id=\(requestId) q=\(question) opts=\(options.count)")
 
@@ -371,11 +374,43 @@ class HookServer {
         return "{}"
     }
 
-    /// Store the header for a pending ask so the hook can use it in the response
-    private var askHeaders = [String: String]()
+    // MARK: - Expiry sweeper
 
-    func setAskHeader(requestId: String, header: String) {
-        askHeaders[requestId] = header
+    /// Maximum time a permission/ask request may sit waiting for a UI
+    /// response before we drop it and free its connection. Five minutes
+    /// is well past any reasonable interactive response window; the
+    /// only requests that hit this are leaks (Claude session died,
+    /// banner dismissed without interaction, fixture left over from a
+    /// crashed test, etc.).
+    private static let pendingRequestTTL: TimeInterval = 300
+
+    private var sweepTimer: DispatchSourceTimer?
+
+    private func startExpirySweeper() {
+        guard sweepTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        // Run once a minute — sweep is O(n) over a dict that will
+        // typically hold 0–2 entries, so cost is negligible.
+        timer.schedule(deadline: .now() + 60, repeating: 60)
+        timer.setEventHandler { [weak self] in
+            self?.sweepExpiredRequests()
+        }
+        timer.resume()
+        sweepTimer = timer
+    }
+
+    private func sweepExpiredRequests() {
+        let cutoff = Date().addingTimeInterval(-HookServer.pendingRequestTTL)
+        let expired = pendingRequests.filter { $0.value.createdAt < cutoff }
+        guard !expired.isEmpty else { return }
+        for (id, pending) in expired {
+            // Best-effort: respond with an empty hook output so Claude
+            // Code unblocks (it falls back to its default permission /
+            // terminal-ask flow). Then drop the entry.
+            sendResponse(connection: pending.connection, statusCode: 200, body: "{}")
+            pendingRequests.removeValue(forKey: id)
+            debugLog("[HookServer] Swept expired pending request id=\(id) age>\(Int(HookServer.pendingRequestTTL))s")
+        }
     }
 
     // MARK: - HTTP response
@@ -557,6 +592,10 @@ private struct PendingRequest {
     /// of the hook response so Claude can pre-fill the AskUserQuestion tool's
     /// `answers` field and skip the terminal fallback UI.
     let originalToolInput: [String: Any]?
+    /// When this request was queued, used by the expiry sweeper to drop
+    /// stale entries (e.g. Claude Code session died before responding,
+    /// user dismissed banner without interacting, test fixture leaked).
+    let createdAt: Date
 }
 
 private enum RequestType {
