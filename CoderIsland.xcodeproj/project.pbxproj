@@ -34,6 +34,7 @@
 		A10000190000000000000001 /* UsageStatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000190000000000000001; };
 		A100001A0000000000000001 /* UsageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001A0000000000000001; };
 		A100001B0000000000000001 /* CodexOAuthUsageFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001B0000000000000001; };
+		A100001C0000000000000001 /* LoginItemHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001C0000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +55,7 @@
 		A20000190000000000000001 /* UsageStatusParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageStatusParser.swift; sourceTree = "<group>"; };
 		A200001A0000000000000001 /* UsageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageManager.swift; sourceTree = "<group>"; };
 		A200001B0000000000000001 /* CodexOAuthUsageFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexOAuthUsageFetcher.swift; sourceTree = "<group>"; };
+		A200001C0000000000000001 /* LoginItemHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemHelper.swift; sourceTree = "<group>"; };
 		A200000B0000000000000001 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
 		A200000C0000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A200000D0000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -103,6 +105,7 @@
 				A40000070000000000000001 /* Audio */,
 				A40000080000000000000001 /* HookServer */,
 				A400000A0000000000000001 /* Usage */,
+				A400000B0000000000000001 /* LoginItem */,
 			);
 			path = CoderIsland;
 			sourceTree = "<group>";
@@ -155,6 +158,14 @@
 				A200000B0000000000000001 /* SoundManager.swift */,
 			);
 			path = Audio;
+			sourceTree = "<group>";
+		};
+		A400000B0000000000000001 /* LoginItem */ = {
+			isa = PBXGroup;
+			children = (
+				A200001C0000000000000001 /* LoginItemHelper.swift */,
+			);
+			path = LoginItem;
 			sourceTree = "<group>";
 		};
 		A400000A0000000000000001 /* Usage */ = {
@@ -272,6 +283,7 @@
 				A10000190000000000000001 /* UsageStatusParser.swift in Sources */,
 				A100001A0000000000000001 /* UsageManager.swift in Sources */,
 				A100001B0000000000000001 /* CodexOAuthUsageFetcher.swift in Sources */,
+				A100001C0000000000000001 /* LoginItemHelper.swift in Sources */,
 				A100000B0000000000000001 /* SoundManager.swift in Sources */,
 				A100000D0000000000000001 /* CompactBarWindow.swift in Sources */,
 				A100000E0000000000000001 /* CompactBarView.swift in Sources */,

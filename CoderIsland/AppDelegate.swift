@@ -31,6 +31,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Sync the cached "Launch at login" pref from the system source
+        // of truth — the user may have toggled it off in System Settings
+        // → General → Login Items between runs.
+        UserDefaults.standard.set(LoginItemHelper.currentlyEnabled(),
+                                  forKey: "launchAtLogin")
+
         requestAccessibilityPermissionIfNeeded()
         registerIslandActions()
         agentManager.startMonitoring()

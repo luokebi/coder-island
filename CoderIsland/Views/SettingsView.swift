@@ -115,6 +115,17 @@ struct SettingsView: View {
                             subtitle: "Start Coder Island automatically after login"
                         ) {
                             rightSwitch($launchAtLogin)
+                                .onChange(of: launchAtLogin) { _, enabled in
+                                    let ok = LoginItemHelper.setEnabled(enabled)
+                                    if !ok {
+                                        // Roll back the UI toggle if the
+                                        // system rejected the request
+                                        // (e.g. running from DerivedData).
+                                        DispatchQueue.main.async {
+                                            launchAtLogin = !enabled
+                                        }
+                                    }
+                                }
                         }
                     }
 
