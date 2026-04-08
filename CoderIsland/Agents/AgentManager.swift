@@ -609,12 +609,18 @@ class AgentManager: ObservableObject {
 
         guard !recent.isEmpty else { return SessionState(status: .running) }
 
-        // Find user's latest text message (scan all lines). Skip sidechain
-        // (we'll also use this for the stop-hook-summary short-circuit's
-        // lastUserMessage + lastAssistantMessage fields, hence moved above).
-        // (subagent prompts) for the same reason as the recent loop above.
-        let lastUserMsg: String? = {
-            for line in allLines.reversed() {
+        // Find user's latest text message. Skip sidechain (subagent prompts)
+        // for the same reason as the recent loop above.
+        //
+        // Long-running sessions can have multi-hundred-KB tool_result blocks
+        // (huge greps, file reads, build logs) sitting between the most
+        // recent user text and the tail. The 128KB initial window then
+        // contains zero text user entries and lastUserMessage comes back
+        // nil — the row visibly loses its middle line. To handle that, if
+        // the initial window misses, slide the read backward in 128KB
+        // increments up to a 1MB hard cap.
+        func scanForLastUserText(in lines: [String]) -> String? {
+            for line in lines.reversed() {
                 guard let data = line.data(using: .utf8),
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       json["type"] as? String == "user",
@@ -632,6 +638,34 @@ class AgentManager: ObservableObject {
                         return "You: \(String(text.prefix(50)))"
                     }
                 }
+            }
+            return nil
+        }
+
+        let lastUserMsg: String? = {
+            if let hit = scanForLastUserText(in: allLines) { return hit }
+
+            let chunkBytes: UInt64 = 131072
+            let maxTotal: UInt64 = chunkBytes * 8  // ~1MB cap
+            var currentRead = bigReadSize
+            while currentRead < min(fileSize, maxTotal) {
+                let nextRead = min(currentRead + chunkBytes, min(fileSize, maxTotal))
+                handle.seek(toFileOffset: fileSize - nextRead)
+                var extData = handle.readDataToEndOfFile()
+                // If we didn't reach the file's actual start, the first line
+                // is partial (and possibly cuts a UTF-8 multi-byte). Drop
+                // everything before the first newline.
+                if nextRead < fileSize,
+                   let nlByte = extData.firstIndex(of: 0x0A) {
+                    extData = extData.subdata(in: (nlByte + 1)..<extData.count)
+                }
+                guard let ext = String(data: extData, encoding: .utf8) else {
+                    currentRead = nextRead
+                    continue
+                }
+                let extLines = ext.components(separatedBy: "\n").filter { !$0.isEmpty }
+                if let hit = scanForLastUserText(in: extLines) { return hit }
+                currentRead = nextRead
             }
             return nil
         }()
@@ -1117,7 +1151,7 @@ class AgentManager: ObservableObject {
         return CodexMeta(cwd: cwd, startDate: startDate, source: source)
     }
 
-    private func parseCodexState(from path: String) -> SessionState {
+    func parseCodexState(from path: String) -> SessionState {
         guard let handle = FileHandle(forReadingAtPath: path) else {
             return SessionState(status: .running)
         }

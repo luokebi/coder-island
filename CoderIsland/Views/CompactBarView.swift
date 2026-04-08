@@ -38,8 +38,9 @@ struct CompactBarView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(
+                            // Explicit RGB — see TagBadge.swift for rationale.
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.white.opacity(0.15))
+                                .fill(Color(red: 0.22, green: 0.22, blue: 0.24))
                         )
                 }
             }

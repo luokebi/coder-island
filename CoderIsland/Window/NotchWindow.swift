@@ -61,7 +61,7 @@ class NotchWindow: NSWindow {
     private var mouseMovedGlobalMonitor: Any?
     private var mouseMovedLocalMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
-    private let panelWidth: CGFloat = 500
+    private let panelWidth: CGFloat = 600
     private var compactBarWidth: CGFloat = 340
     private var hostingView: ClickThroughHostingView<IslandView>!
     let viewModel: NotchWindowViewModel
@@ -141,6 +141,7 @@ class NotchWindow: NSWindow {
         // Save notch camera region info for SwiftUI layout.
         viewModel.notchWidth = notchWidth
         viewModel.notchHeight = notchHeight
+        viewModel.topInset = barHeight
 
         let rootView = IslandView(agentManager: agentManager, viewModel: viewModel)
         self.hostingView = ClickThroughHostingView(rootView: rootView)
@@ -342,6 +343,10 @@ class NotchWindowViewModel: ObservableObject {
     @Published var pendingAsks: [AskRequest] = []
     var notchWidth: CGFloat = 0   // 0 = no notch
     var notchHeight: CGFloat = 0
+    /// Vertical space reserved at the top of the expanded panel so content
+    /// clears the menu bar area (and the camera cutout on notch Macs).
+    /// Computed once by `NotchWindow.init` from `max(safeAreaInsets.top, menuBarHeight)`.
+    var topInset: CGFloat = 0
 
     var hasNotch: Bool { notchHeight > 0 }
     var onStateChange: ((Bool) -> Void)?

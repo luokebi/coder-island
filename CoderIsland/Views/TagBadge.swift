@@ -11,8 +11,14 @@ struct TagBadge: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
+                // Explicit RGB instead of `Color.white.opacity(...)` so the
+                // fill survives older macOS compositors (15.x has been seen
+                // to rasterize 9-12% white-over-black as effectively
+                // transparent, leaving badges with no visible background).
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.white.opacity(dimmed ? 0.09 : 0.12))
+                    .fill(dimmed
+                          ? Color(red: 0.15, green: 0.15, blue: 0.17)
+                          : Color(red: 0.19, green: 0.19, blue: 0.21))
             )
     }
 }

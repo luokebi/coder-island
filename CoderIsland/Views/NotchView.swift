@@ -14,7 +14,6 @@ struct IslandView: View {
     private let barColor = Color.black
     // Extra padding around the shape so corners + shadow are visible
     static let inset: CGFloat = 24
-    static let noNotchExpandedTopInset: CGFloat = 16
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -175,8 +174,10 @@ struct IslandView: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
                         .background(
+                            // Match TagBadge: explicit RGB so the fill
+                            // survives older macOS compositors.
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.white.opacity(0.12))
+                                .fill(Color(red: 0.19, green: 0.19, blue: 0.21))
                         )
                 }
             }
@@ -321,16 +322,18 @@ struct IslandView: View {
                     }
                 }
             }
-            .padding(.top, viewModel.hasNotch ? 8 : 4)
+            .padding(.top, 6)
             .padding(.trailing, 12)
         }
     }
 
     private var topReservedSpace: CGFloat {
-        if viewModel.hasNotch {
-            return max(0, viewModel.notchHeight - 8)
-        }
-        return Self.noNotchExpandedTopInset
+        // Unified across notch / no-notch: the window already computes
+        // `barHeight = max(safeAreaInsets.top, menuBarHeight)` and stores
+        // it as `viewModel.topInset`. Subtract 8 so the first row sits a
+        // hair above the menu bar baseline (matches the previous notch
+        // value `notchHeight - 8`).
+        return max(0, viewModel.topInset - 8)
     }
 
     private var emptyState: some View {
