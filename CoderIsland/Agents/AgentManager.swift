@@ -12,6 +12,12 @@ func debugLog(_ msg: String) {
 class AgentManager: ObservableObject {
     @Published var sessions: [AgentSession] = []
     var onAskAppeared: (() -> Void)?
+    /// Fired when a hook event arrives that signals Claude has moved
+    /// past any pending permission/ask prompt for `sessionId` (e.g.
+    /// PostToolUse, Stop, UserPromptSubmit). Wired to
+    /// NotchWindowViewModel.dismissPendingsForResolvedSession so
+    /// banners answered in the CLI fallback don't sit forever.
+    var onSessionPromptsResolved: ((_ sessionId: String) -> Void)?
     private var scanTimer: Timer?
     private var currentScanInterval: TimeInterval = 3.0
     private var knownSessionIds: Set<String> = []
@@ -141,6 +147,17 @@ class AgentManager: ObservableObject {
             }
         default:
             return
+        }
+
+        // Any "moved past" hook event resolves outstanding banners for
+        // this session — covers the case where the user answered the
+        // permission/ask in the CLI fallback UI instead of clicking
+        // the Coder Island banner.
+        switch eventName {
+        case "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "UserPromptSubmit":
+            onSessionPromptsResolved?(sessionId)
+        default:
+            break
         }
 
         session.lastUpdated = Date()

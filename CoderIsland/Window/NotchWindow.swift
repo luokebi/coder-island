@@ -179,6 +179,13 @@ class NotchWindow: NSWindow {
 
         self.contentView = container
 
+        // When AgentManager sees a hook event that means Claude has
+        // moved past a permission/ask prompt, drop any stale banners
+        // we're holding for that session.
+        agentManager.onSessionPromptsResolved = { [weak self] sessionId in
+            self?.viewModel.dismissPendingsForResolvedSession(sessionId: sessionId)
+        }
+
         // Watch for expand/collapse to resize window
         viewModel.onStateChange = { [weak self] expanded in
             guard let self = self else { return }
@@ -402,6 +409,29 @@ class NotchWindowViewModel: ObservableObject {
         let suppress = (frontmost == session.terminalApp)
         debugLog("[smartSuppress] sid=\(sessionId.prefix(8)) terminal=\(session.terminalApp) frontmost=\(frontmost) → suppress=\(suppress)")
         return suppress
+    }
+
+    /// Drop any banners we're holding for `sessionId` because Claude
+    /// has clearly moved past the prompt. Called by AgentManager when
+    /// it sees a hook event for the session that's not the originating
+    /// PermissionRequest / AskUserQuestion (e.g. PostToolUse, Stop,
+    /// UserPromptSubmit). Covers the case where the user answered the
+    /// prompt directly in the CLI fallback UI instead of clicking the
+    /// Coder Island banner — without this, the stale banner sits
+    /// forever.
+    func dismissPendingsForResolvedSession(sessionId: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let beforePerm = self.pendingPermissions.count
+            let beforeAsk = self.pendingAsks.count
+            self.pendingPermissions.removeAll { $0.sessionId == sessionId }
+            self.pendingAsks.removeAll { $0.sessionId == sessionId }
+            let removed = (beforePerm - self.pendingPermissions.count)
+                        + (beforeAsk - self.pendingAsks.count)
+            if removed > 0 {
+                self.onStateChange?(self.isExpanded)
+            }
+        }
     }
 
     func allowPermission(_ id: String) {
