@@ -253,7 +253,9 @@ struct IslandView: View {
             Spacer().frame(height: topReservedSpace)
 
             // Orphan permission banners: requests whose sessionId doesn't match any
-            // active session are rendered at the top so they're not lost.
+            // active session are rendered at the top so they're not lost. Kept
+            // OUTSIDE the ScrollView so they stay pinned and can't be scrolled
+            // away — they're a critical fallback interaction.
             ForEach(orphanPermissions) { req in
                 orphanPermissionBanner(req)
             }
@@ -261,8 +263,13 @@ struct IslandView: View {
             if agentManager.sessions.isEmpty && viewModel.pendingPermissions.isEmpty && viewModel.pendingAsks.isEmpty {
                 emptyState
             } else {
-                ForEach(agentManager.sessions) { session in
-                    SessionCard(session: session, viewModel: viewModel, agentManager: agentManager)
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 4) {
+                        ForEach(agentManager.sessions) { session in
+                            SessionCard(session: session, viewModel: viewModel, agentManager: agentManager)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -659,6 +666,70 @@ struct IslandView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
+    }
+}
+
+// MARK: - Expanded Sizing View
+//
+// Mirrors `IslandView.expandedContentBody` *without* the ScrollView so
+// `NSHostingView.fittingSize` can report the natural content height.
+// `NotchWindow.animateWindowResize` measures this view to decide the
+// expanded panel height (then caps at 0.7 * screen). The visible UI uses
+// a ScrollView so when the natural height exceeds the cap, content
+// scrolls instead of being pushed off the top edge.
+//
+// Keep this in sync with the visible layout's vertical contributors:
+// `Spacer(topReservedSpace)` + orphan banners + (empty state | session
+// cards) + `padding(12)`. Horizontal padding is handled by
+// `IslandView.inset`; the bottom inset is added by the caller.
+// MARK: - NSScrollView Knob-Style Configurator
+//
+// SwiftUI's overlay-style scroll indicators are nearly invisible on a
+// solid-black background because macOS defaults to a dark knob. This
+// NSViewRepresentable walks up to the enclosing NSScrollView and sets
+// `scrollerKnobStyle = .light` so the scrollbar renders white. It also
+// shows/hides the scroller based on hover state.
+
+
+struct ExpandedSizingView: View {
+    let sessions: [AgentSession]
+    let orphans: [PermissionRequest]
+    let pendingPermissionsCount: Int
+    let pendingAsksCount: Int
+    let topReservedSpace: CGFloat
+    @ObservedObject var viewModel: NotchWindowViewModel
+    let agentManager: AgentManager
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Spacer().frame(height: topReservedSpace)
+            ForEach(orphans) { req in
+                PermissionBannerView(
+                    request: req,
+                    onAllow: { },
+                    onAllowAlways: { },
+                    onDeny: { }
+                )
+            }
+            if sessions.isEmpty && pendingPermissionsCount == 0 && pendingAsksCount == 0 {
+                VStack(spacing: 12) {
+                    Text("🏝").font(.system(size: 32))
+                    Text("No active agents")
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    Text("Start Claude Code or Codex CLI\nto see sessions here")
+                        .font(.system(size: 11, design: .monospaced))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                ForEach(sessions) { session in
+                    SessionCard(session: session, viewModel: viewModel, agentManager: agentManager)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }
 

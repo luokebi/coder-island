@@ -120,6 +120,7 @@ class AgentManager: ObservableObject {
             // A new user prompt resets the completion-acknowledged marker so
             // the next Stop event can trigger the completion sound again.
             session.acknowledgedCompletionMarker = nil
+            session.completionMarker = nil  // Clear hook-stop marker for new turn
             // Mark the submit timestamp so the next ~3s of scans don't
             // mistakenly play a completion sound: the jsonl tail may still
             // show the previous turn's end_turn because the new user prompt
@@ -219,7 +220,11 @@ class AgentManager: ObservableObject {
                         let oldStatus = self.sessions[idx].status
                         let oldSubtitle = self.sessions[idx].subtitle
                         let incomingCompletionMarker = self.stableCompletionMarker(for: session)
-                        self.sessions[idx].completionMarker = incomingCompletionMarker
+                        // Don't overwrite a hook-derived marker — it's
+                        // authoritative and used to prevent double sounds.
+                        if !(self.sessions[idx].completionMarker?.hasPrefix("hook-stop:") == true) {
+                            self.sessions[idx].completionMarker = incomingCompletionMarker
+                        }
 
                         // Grace window after a UserPromptSubmit hook. The jsonl
                         // write of the new user prompt can lag the hook by up
@@ -263,22 +268,38 @@ class AgentManager: ObservableObject {
                             }
                             return session.status
                         }()
-                        self.sessions[idx].status = effectiveStatus
-                        self.sessions[idx].taskName = session.taskName
-                        self.sessions[idx].subtitle = session.subtitle
-                        self.sessions[idx].terminalApp = session.terminalApp
+                        // Only assign @Published properties when the value
+                        // actually changed. AgentSession is an ObservableObject,
+                        // so every write — even with the same value — fires
+                        // objectWillChange and causes SwiftUI to re-render the
+                        // SessionCard. Ask cards are expensive to re-render
+                        // (multiple option rows), making hover visibly laggy
+                        // during the JSONL polling interval.
+                        let s = self.sessions[idx]
+                        if s.status != effectiveStatus { s.status = effectiveStatus }
+                        if s.taskName != session.taskName { s.taskName = session.taskName }
+                        if s.subtitle != session.subtitle { s.subtitle = session.subtitle }
+                        if s.terminalApp != session.terminalApp { s.terminalApp = session.terminalApp }
                         // Clear ask when no longer waiting (e.g. interrupted)
-                        if session.status != .waiting {
-                            self.sessions[idx].askQuestion = nil
-                            self.sessions[idx].askOptions = nil
-                        } else {
-                            self.sessions[idx].askQuestion = session.askQuestion
-                            self.sessions[idx].askOptions = session.askOptions
+                        let newAskQ: String? = session.status == .waiting ? session.askQuestion : nil
+                        let newAskO: [(label: String, description: String)]? = session.status == .waiting ? session.askOptions : nil
+                        if s.askQuestion != newAskQ { s.askQuestion = newAskQ }
+                        // askOptions has no Equatable; compare via label lists.
+                        let oldLabels = s.askOptions?.map(\.label)
+                        let newLabels = newAskO?.map(\.label)
+                        if oldLabels != newLabels { s.askOptions = newAskO }
+                        // When the scan detects a session left .waiting,
+                        // dismiss any hook-based pendingAsks/permissions
+                        // that the ViewModel is still holding (covers the
+                        // case where the user declined / interrupted in the
+                        // terminal and no follow-up hook event arrived).
+                        if oldStatus == .waiting && effectiveStatus != .waiting {
+                            self.onSessionPromptsResolved?(s.id)
                         }
-                        self.sessions[idx].lastUserMessage = session.lastUserMessage
-                        self.sessions[idx].lastAssistantMessage = session.lastAssistantMessage
-                        if session.usageInfo != nil {
-                            self.sessions[idx].usageInfo = session.usageInfo
+                        if s.lastUserMessage != session.lastUserMessage { s.lastUserMessage = session.lastUserMessage }
+                        if s.lastAssistantMessage != session.lastAssistantMessage { s.lastAssistantMessage = session.lastAssistantMessage }
+                        if session.usageInfo != nil && s.usageInfo != session.usageInfo {
+                            s.usageInfo = session.usageInfo
                         }
 
                         // Bump lastUpdated when state actually changes
@@ -292,8 +313,11 @@ class AgentManager: ObservableObject {
                             )
                         }
 
-                        // Play completion sound only when transitioning from active -> completed
-                        if effectiveStatus.isRecentlyFinished && oldStatus.isActive {
+                        // Play completion sound only when transitioning from active -> completed,
+                        // and only if the Stop hook didn't already play it (hook-derived
+                        // markers start with "hook-stop:").
+                        let hookAlreadyPlayed = s.completionMarker?.hasPrefix("hook-stop:") == true
+                        if effectiveStatus.isRecentlyFinished && oldStatus.isActive && !hookAlreadyPlayed {
                             self.traceStatusTransition(
                                 event: "completion_sound",
                                 session: self.sessions[idx],
@@ -450,11 +474,16 @@ class AgentManager: ObservableObject {
                 let sessionName = json["name"] as? String
                 let taskName = sessionName ?? cwd.components(separatedBy: "/").last ?? "Claude session"
 
-                let state = readSessionState(sessionId: sessionId)
+                // After /clear, Claude Code creates a new conversation
+                // (new JSONL) but the session file keeps the old ID. Find
+                // the newest JSONL in the project directory to get the
+                // active conversation ID.
+                let activeId = activeConversationId(sessionId: sessionId, cwd: cwd) ?? sessionId
+                let state = readSessionState(sessionId: activeId)
                 let terminal = detectTerminalForProcess(pid: Int32(pid))
 
                 sessions.append(AgentSession(
-                    id: sessionId,
+                    id: activeId,
                     agentType: .claudeCode,
                     pid: Int32(pid),
                     taskName: taskName,
@@ -1486,6 +1515,37 @@ class AgentManager: ObservableObject {
             task.waitUntilExit()
             return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         } catch { return "" }
+    }
+
+    /// After `/clear`, Claude Code starts a new conversation with a fresh
+    /// JSONL but the session file still points to the old sessionId. Find
+    /// the newest JSONL in the matching project directory so hook events
+    /// (which use the new ID) can be matched to the session.
+    private func activeConversationId(sessionId: String, cwd: String) -> String? {
+        let projectKey = cwd.replacingOccurrences(of: "/", with: "-")
+        let projectDir = claudeDir.appendingPathComponent("projects").appendingPathComponent(projectKey)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: projectDir,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return nil }
+
+        let jsonlFiles = files.filter { $0.pathExtension == "jsonl" }
+        guard jsonlFiles.count > 1 else { return nil }  // No ambiguity
+
+        // Find the most recently modified JSONL
+        var newest: URL?
+        var newestDate: Date = .distantPast
+        for file in jsonlFiles {
+            if let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+               date > newestDate {
+                newestDate = date
+                newest = file
+            }
+        }
+
+        guard let best = newest else { return nil }
+        let newId = best.deletingPathExtension().lastPathComponent
+        return newId != sessionId ? newId : nil
     }
 
     private func getProcessCWD(pid: Int32) -> String? {

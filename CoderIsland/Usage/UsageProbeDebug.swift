@@ -107,8 +107,17 @@ enum UsageProbeDebug {
             return nil
         }
         let fm = FileManager.default
+        let home = NSHomeDirectory()
+        // TCC-protected directories: fileExists() on these triggers a
+        // macOS permission prompt we want to avoid on every launch.
+        let tccPrefixes = [
+            home + "/Documents/",
+            home + "/Desktop/",
+            home + "/Downloads/",
+        ]
         for (path, config) in projects {
             if config["hasTrustDialogAccepted"] as? Bool == true,
+               !tccPrefixes.contains(where: { path.hasPrefix($0) }),
                fm.fileExists(atPath: path) {
                 return URL(fileURLWithPath: path)
             }

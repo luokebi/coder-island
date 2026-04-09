@@ -178,11 +178,10 @@ class NotchWindow: NSWindow {
         let targetHeight: CGFloat
         if expanded {
             targetWidth = panelWidth + inset * 2
-            // Mirror animateWindowResize's height measurement so the
-            // expanded panel ends up the right height on the new screen.
-            let sizingView = NSHostingView(rootView: hostingView.rootView)
-            sizingView.frame.size.width = targetWidth
-            targetHeight = min(sizingView.fittingSize.height, screen.frame.height * 0.7)
+            // Mirror animateWindowResize's measurement: use the sizing-only
+            // view (no ScrollView) so we get the natural content height.
+            let fittingHeight = measureExpandedContentHeight(width: panelWidth)
+            targetHeight = min(fittingHeight + inset, screen.frame.height * 0.7)
         } else {
             targetWidth = compactBarWidth + inset * 2
             targetHeight = barHeight + inset
@@ -503,6 +502,28 @@ class NotchWindow: NSWindow {
         )
     }
 
+    /// Builds an `ExpandedSizingView` (the no-ScrollView mirror of the
+    /// expanded panel content) and returns its natural fitting height for
+    /// the given content width. Used to size the expanded window so it
+    /// snugs to its content up to the 0.7×screen cap.
+    private func measureExpandedContentHeight(width: CGFloat) -> CGFloat {
+        let activeIds = Set(agentManager.sessions.map(\.id))
+        let orphans = viewModel.pendingPermissions.filter { !activeIds.contains($0.sessionId) }
+        let topReserved = max(0, viewModel.topInset - 8)
+        let sizingRoot = ExpandedSizingView(
+            sessions: agentManager.sessions,
+            orphans: orphans,
+            pendingPermissionsCount: viewModel.pendingPermissions.count,
+            pendingAsksCount: viewModel.pendingAsks.count,
+            topReservedSpace: topReserved,
+            viewModel: viewModel,
+            agentManager: agentManager
+        )
+        let sizingView = NSHostingView(rootView: sizingRoot)
+        sizingView.frame.size.width = width
+        return sizingView.fittingSize.height
+    }
+
     private func animateWindowResize(expanded: Bool) {
         let screen = self.screen ?? NotchWindow.preferredScreen()
         let screenFrame = screen.frame
@@ -516,11 +537,14 @@ class NotchWindow: NSWindow {
         if expanded {
             targetWidth = panelWidth + inset * 2
 
-            // Measure fitting size using a detached sizing view to avoid triggering layout
-            let sizingView = NSHostingView(rootView: hostingView.rootView)
-            sizingView.frame.size.width = targetWidth
-            let fitting = sizingView.fittingSize
-            targetHeight = min(fitting.height, screenFrame.height * 0.7)
+            // Measure natural content height with a sizing-only mirror that
+            // skips the ScrollView wrapper. The visible expanded panel uses
+            // a ScrollView, whose own fittingSize collapses to ~0 — so we
+            // can't measure the live root view directly anymore.
+            let fittingHeight = measureExpandedContentHeight(width: panelWidth)
+            // Add the bottom inset that IslandView wraps around its body.
+            let total = fittingHeight + inset
+            targetHeight = min(total, screenFrame.height * 0.7)
         } else {
             targetWidth = compactBarWidth + inset * 2
             let barH = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
@@ -539,6 +563,7 @@ class NotchWindow: NSWindow {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
             self.animator().setFrame(newFrame, display: true)
         }
+
     }
 
     deinit {

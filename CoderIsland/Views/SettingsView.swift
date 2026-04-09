@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("hideInFullscreen") private var hideInFullscreen = false
     @AppStorage("preferredDisplayID") private var preferredDisplayID = 0
     @State private var displayChoices: [(id: Int, label: String)] = []
+    @State private var accessibilityGranted = AXIsProcessTrusted()
 
     @State private var isImportingSound = false
     @State private var importTarget: SoundManager.Event?
@@ -148,6 +149,29 @@ struct SettingsView: View {
                         ) {
                             displayMenu
                         }
+                        rowDivider
+                        settingsRow(
+                            title: "Accessibility",
+                            subtitle: accessibilityGranted
+                                ? "Granted — tab switching and terminal detection enabled"
+                                : "Required for switching terminal tabs and detecting foreground apps"
+                        ) {
+                            if accessibilityGranted {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.green)
+                            } else {
+                                actionButton("Grant Access") {
+                                    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+                                    _ = AXIsProcessTrustedWithOptions(opts)
+                                    // Poll briefly — the user may grant instantly
+                                    // or the system settings sheet may appear.
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                                        accessibilityGranted = AXIsProcessTrusted()
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     sectionTitle("Behaviour")
@@ -188,6 +212,12 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             refreshCustomSoundNames()
+            accessibilityGranted = AXIsProcessTrusted()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification
+        )) { _ in
+            accessibilityGranted = AXIsProcessTrusted()
         }
         .fileImporter(
             isPresented: $isImportingSound,
