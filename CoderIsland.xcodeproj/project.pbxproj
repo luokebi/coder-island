@@ -27,6 +27,7 @@
 		A10000120000000000000001 /* mario_permission.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A20000120000000000000002; };
 		A10000130000000000000001 /* mario_question.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A20000130000000000000002; };
 		A10000140000000000000001 /* mario_complete.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A20000140000000000000002; };
+		A100001D0000000000000001 /* mario_start.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A200001D0000000000000002; };
 		A10000150000000000000001 /* ParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000150000000000000001; };
 		A10000160000000000000001 /* CodexParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000160000000000000001; };
 		A10000170000000000000001 /* CLIStatusProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000170000000000000001; };
@@ -69,6 +70,7 @@
 		A20000120000000000000002 /* mario_permission.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_permission.mp3; sourceTree = "<group>"; };
 		A20000130000000000000002 /* mario_question.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_question.mp3; sourceTree = "<group>"; };
 		A20000140000000000000002 /* mario_complete.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_complete.mp3; sourceTree = "<group>"; };
+		A200001D0000000000000002 /* mario_start.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_start.mp3; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -195,6 +197,7 @@
 				A20000120000000000000002 /* mario_permission.mp3 */,
 				A20000130000000000000002 /* mario_question.mp3 */,
 				A20000140000000000000002 /* mario_complete.mp3 */,
+				A200001D0000000000000002 /* mario_start.mp3 */,
 			);
 			path = sounds;
 			sourceTree = "<group>";
@@ -256,6 +259,7 @@
 				A10000120000000000000001 /* mario_permission.mp3 in Resources */,
 				A10000130000000000000001 /* mario_question.mp3 in Resources */,
 				A10000140000000000000001 /* mario_complete.mp3 in Resources */,
+				A100001D0000000000000001 /* mario_start.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

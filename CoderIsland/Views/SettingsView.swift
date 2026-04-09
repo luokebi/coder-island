@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("soundPermissionEnabled") private var soundPermissionEnabled = true
     @AppStorage("soundAskEnabled") private var soundAskEnabled = true
     @AppStorage("soundTaskDoneEnabled") private var soundTaskDoneEnabled = true
+    @AppStorage("soundAppStartedEnabled") private var soundAppStartedEnabled = true
     @AppStorage("askHooksEnabled") private var askHooksEnabled = false
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("smartSuppression") private var smartSuppression = true
@@ -23,6 +24,7 @@ struct SettingsView: View {
     @State private var permissionSoundName = ""
     @State private var askSoundName = ""
     @State private var doneSoundName = ""
+    @State private var appStartedSoundName = ""
     @State private var soundStatus = ""
 
     var body: some View {
@@ -103,6 +105,13 @@ struct SettingsView: View {
                             event: .taskComplete,
                             currentCustomName: doneSoundName,
                             enabled: $soundTaskDoneEnabled
+                        )
+                        rowDivider
+                        soundEventRow(
+                            title: "App started",
+                            event: .appStarted,
+                            currentCustomName: appStartedSoundName,
+                            enabled: $soundAppStartedEnabled
                         )
                     }
 
@@ -209,30 +218,42 @@ struct SettingsView: View {
     }
 
     private var appHeader: some View {
-        VStack(spacing: 10) {
+        // Pixel-art wordmark — no backdrop. Mostly blue with one orange
+        // letter in CODER and one green letter in ISLAND, echoing the
+        // Claude/Codex idle colors. Each letter has its own neon glow.
+        let blue = Color(red: 0.30, green: 0.50, blue: 0.95)    // running (active)
+        let orange = Color(red: 0.85, green: 0.52, blue: 0.35)   // Claude idle
+        let green = Color(red: 0.25, green: 0.65, blue: 0.38)    // Codex idle
+
+        return HStack(spacing: 24) {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
-                .interpolation(.high)
+                .interpolation(.none)
                 .scaledToFit()
-                .frame(width: 74, height: 74)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                .frame(width: 88, height: 88)
+
+            VStack(alignment: .leading, spacing: 10) {
+                PixelText(
+                    text: "CODER",
+                    colors: [orange],
+                    cell: 3,
+                    italic: true
                 )
-                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
-
-            Text(appDisplayName)
-                .font(.system(size: 38, weight: .bold))
-                .foregroundColor(.white.opacity(0.96))
-                .tracking(-0.6)
-
-            Text("Version \(appVersion)")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.white.opacity(0.60))
+                PixelText(
+                    text: "ISLAND",
+                    colors: [blue, green, blue, green, blue, green],
+                    cell: 3,
+                    italic: true
+                )
+                Text("v\(appVersion)  //  SYSTEM ONLINE")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(1.5)
+                    .foregroundColor(.white.opacity(0.55))
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
     }
 
     private var appDisplayName: String {
@@ -264,7 +285,7 @@ struct SettingsView: View {
         subtitle: String,
         @ViewBuilder accessory: () -> Accessory
     ) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 15, weight: .medium))
@@ -276,7 +297,6 @@ struct SettingsView: View {
             }
             Spacer(minLength: 16)
             accessory()
-                .padding(.top, 1)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
@@ -362,10 +382,47 @@ struct SettingsView: View {
         SoundManager.Preset(rawValue: soundPreset) ?? .mario
     }
 
+    // Shared dropdown chrome — same rounded bordered pill used by every
+    // settings menu so they line up visually and stay vertically centered.
+    private func dropdownMenu<Items: View>(
+        currentLabel: String,
+        @ViewBuilder items: () -> Items
+    ) -> some View {
+        Menu {
+            items()
+        } label: {
+            HStack(spacing: 8) {
+                Text(currentLabel)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.95))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            .padding(.horizontal, 12)
+            .frame(minWidth: 140, minHeight: 30, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.09))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+    }
+
     private var displayMenu: some View {
         let currentLabel = displayChoices.first { $0.id == preferredDisplayID }?.label
             ?? "Automatic"
-        return Menu {
+        return dropdownMenu(currentLabel: currentLabel) {
             ForEach(displayChoices, id: \.id) { choice in
                 Button {
                     preferredDisplayID = choice.id
@@ -383,25 +440,7 @@ struct SettingsView: View {
                     }
                 }
             }
-        } label: {
-            HStack(spacing: 8) {
-                Text(currentLabel)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white.opacity(0.95))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.55))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.10))
-            )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .onAppear { displayChoices = NotchWindow.availableDisplayChoices() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didChangeScreenParametersNotification
@@ -411,7 +450,7 @@ struct SettingsView: View {
     }
 
     private var presetMenu: some View {
-        Menu {
+        dropdownMenu(currentLabel: selectedPreset.displayName) {
             ForEach(SoundManager.Preset.allCases) { preset in
                 Button {
                     soundPreset = preset.rawValue
@@ -425,31 +464,7 @@ struct SettingsView: View {
                     }
                 }
             }
-        } label: {
-            HStack(spacing: 8) {
-                Text(selectedPreset.displayName)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white.opacity(0.95))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.55))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(minWidth: 150, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color.white.opacity(0.09))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
-        .menuStyle(.borderlessButton)
-        .buttonStyle(.plain)
     }
 
     private func rightSwitch(_ value: Binding<Bool>) -> some View {
@@ -476,5 +491,110 @@ struct SettingsView: View {
         permissionSoundName = SoundManager.shared.customSoundName(for: .permission) ?? ""
         askSoundName = SoundManager.shared.customSoundName(for: .ask) ?? ""
         doneSoundName = SoundManager.shared.customSoundName(for: .taskComplete) ?? ""
+        appStartedSoundName = SoundManager.shared.customSoundName(for: .appStarted) ?? ""
+    }
+}
+
+// MARK: - Pixel bitmap text
+
+/// Renders a string using a hand-drawn 5x7 bitmap font. Only the
+/// characters needed by the settings banner are defined; unknown
+/// characters render as blank space.
+struct PixelText: View {
+    let text: String
+    /// Per-letter colors. Cycles if shorter than the letter count.
+    let colors: [Color]
+    /// Size of a single pixel in points.
+    var cell: CGFloat = 4
+    /// Extra columns between letters.
+    var letterSpacing: CGFloat = 0
+    /// When true, each source row is nudged right to create an italic slant.
+    var italic: Bool = false
+
+    /// Single-color convenience init.
+    init(text: String, color: Color, cell: CGFloat = 4, letterSpacing: CGFloat = 0, italic: Bool = false) {
+        self.text = text
+        self.colors = [color]
+        self.cell = cell
+        self.letterSpacing = letterSpacing
+        self.italic = italic
+    }
+
+    init(text: String, colors: [Color], cell: CGFloat = 4, letterSpacing: CGFloat = 0, italic: Bool = false) {
+        self.text = text
+        self.colors = colors.isEmpty ? [.white] : colors
+        self.cell = cell
+        self.letterSpacing = letterSpacing
+        self.italic = italic
+    }
+
+    // Classic 5x7 font. Each source pixel is rendered as a 2x2 block in
+    // the Canvas so the original letter shapes are preserved but strokes
+    // read as 2-pixel thick chunky blocks.
+    private static let font: [Character: [String]] = [
+        // Uppercase
+        "C": [".####", "#....", "#....", "#....", "#....", "#....", ".####"],
+        "O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+        "D": ["###..", "#..#.", "#...#", "#...#", "#...#", "#..#.", "###.."],
+        "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+        "R": ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+        "I": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
+        "S": [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+        "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+        "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+        "N": ["#...#", "##..#", "##..#", "#.#.#", "#.##.", "#..##", "#...#"],
+        // Lowercase — fit inside the same 5x7 cell
+        "o": [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."],
+        "d": ["....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"],
+        "e": [".....", ".....", ".###.", "#...#", "#####", "#....", ".####"],
+        "r": [".....", ".....", "#.##.", "##..#", "#....", "#....", "#...."],
+        "s": [".....", ".....", ".####", "#....", ".###.", "....#", "####."],
+        "l": ["##...", ".#...", ".#...", ".#...", ".#...", ".#...", ".###."],
+        "a": [".....", ".....", ".###.", "....#", ".####", "#...#", ".####"],
+        "n": [".....", ".....", "#.##.", "##..#", "#...#", "#...#", "#...#"],
+        " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+    ]
+
+    var body: some View {
+        // Keep case as-is so lowercase letters stay lowercase.
+        let chars = Array(text)
+        // Source glyph is 5x7. Each source pixel is rendered as a
+        // single solid block of size `block = cell * 2` so strokes
+        // read as chunky 2-thick pixel tiles (no internal sub-grid).
+        let srcW = 5
+        let srcH = 7
+        let block = cell * 2
+        let pix = max(block - 1.2, block * 0.82)
+        let palette = colors
+        // Italic skew: top row nudges right by ~1 block; bottom is fixed.
+        let skewPerRow: CGFloat = italic ? block * 0.28 : 0
+        let maxSkew = CGFloat(srcH - 1) * skewPerRow
+
+        return HStack(spacing: letterSpacing * block) {
+            ForEach(Array(chars.enumerated()), id: \.offset) { i, ch in
+                let rows = PixelText.font[ch] ?? PixelText.font[" "]!
+                let letterColor = palette[i % palette.count]
+                Canvas { context, _ in
+                    for (y, row) in rows.enumerated() {
+                        let rowSkew = CGFloat(srcH - 1 - y) * skewPerRow
+                        for (x, c) in row.enumerated() where c == "#" {
+                            let rect = CGRect(
+                                x: CGFloat(x) * block + rowSkew,
+                                y: CGFloat(y) * block,
+                                width: pix,
+                                height: pix
+                            )
+                            context.fill(Path(rect), with: .color(letterColor))
+                        }
+                    }
+                }
+                .frame(
+                    width: CGFloat(srcW) * block + maxSkew,
+                    height: CGFloat(srcH) * block
+                )
+                .shadow(color: letterColor.opacity(0.95), radius: 2)
+                .shadow(color: letterColor.opacity(0.6), radius: 5)
+            }
+        }
     }
 }

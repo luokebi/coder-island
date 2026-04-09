@@ -6,6 +6,7 @@ class SoundManager {
         case permission
         case ask
         case taskComplete
+        case appStarted
     }
 
     enum Preset: String, CaseIterable, Identifiable {
@@ -46,6 +47,10 @@ class SoundManager {
 
     private var taskDoneSoundEnabled: Bool {
         UserDefaults.standard.object(forKey: "soundTaskDoneEnabled") as? Bool ?? true
+    }
+
+    private var appStartedSoundEnabled: Bool {
+        UserDefaults.standard.object(forKey: "soundAppStartedEnabled") as? Bool ?? true
     }
 
     private var appSupportDir: URL {
@@ -110,6 +115,16 @@ class SoundManager {
             key: "agentStarted",
             preferredNames: ["Pop", "Funk", "Tink"],
             customEvent: nil
+        )
+    }
+
+    func playAppStarted() {
+        guard soundEnabled, appStartedSoundEnabled else { return }
+        SoundManager.traceSoundPlay("appStarted")
+        playSound(
+            key: "appStarted",
+            preferredNames: ["Glass", "Hero", "Funk"],
+            customEvent: .appStarted
         )
     }
 
@@ -197,6 +212,12 @@ class SoundManager {
                 preferredNames: ["Glass", "Hero", "Ping"],
                 customEvent: .taskComplete
             )
+        case .appStarted:
+            playSound(
+                key: "preview.appStarted",
+                preferredNames: ["Glass", "Hero", "Funk"],
+                customEvent: .appStarted
+            )
         }
     }
 
@@ -275,6 +296,8 @@ class SoundManager {
                 return loadBundledSound(fileName: "mario_question.mp3")
             case .taskComplete:
                 return loadBundledSound(fileName: "mario_complete.mp3")
+            case .appStarted:
+                return loadBundledSound(fileName: "mario_start.mp3")
             }
         }
     }

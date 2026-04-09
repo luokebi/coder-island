@@ -53,6 +53,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showIsland()
         startHookServer()
         UsageManager.shared.start()
+
+        SoundManager.shared.playAppStarted()
     }
 
     private func requestAccessibilityPermissionIfNeeded() {
