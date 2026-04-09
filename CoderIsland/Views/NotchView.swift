@@ -232,7 +232,6 @@ struct IslandView: View {
 
     private var expandedContent: some View {
         expandedContentBody
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
             .contextMenu {
                 Button("Settings...") {
