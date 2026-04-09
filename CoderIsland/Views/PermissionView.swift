@@ -265,11 +265,6 @@ struct SwiftUIOptionRow: View {
             }
 
             Spacer()
-
-            // Shortcut
-            Text("⌃\(index + 1)")
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.gray)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -462,17 +457,6 @@ class OptionButton: NSView {
             (desc as NSString).draw(at: NSPoint(x: labelX, y: 8), withAttributes: descAttrs)
         }
 
-        // Right: ⌘N shortcut
-        let shortcut = "⌃\(index + 1)"
-        let shortcutAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor.gray
-        ]
-        let shortcutSize = (shortcut as NSString).size(withAttributes: shortcutAttrs)
-        (shortcut as NSString).draw(at: NSPoint(
-            x: bounds.width - shortcutSize.width - 14,
-            y: (bounds.height - shortcutSize.height) / 2
-        ), withAttributes: shortcutAttrs)
     }
 }
 

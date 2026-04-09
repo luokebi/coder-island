@@ -9,10 +9,12 @@ struct IslandView: View {
     @State private var showControlMenu = false
     @State private var isGearHovered = false
     @State private var isSettingsHovered = false
+    @State private var isSoundHovered = false
     @State private var isQuitHovered = false
     @State private var hoveredUsageButton: AgentType?
     @State private var usagePopoverDismissTimer: Timer?
     @ObservedObject private var usageManager: UsageManager = .shared
+    @AppStorage("soundEnabled") private var soundEnabled: Bool = true
 
     private let barColor = Color.black
     // Extra padding around the shape so corners + shadow are visible
@@ -229,6 +231,24 @@ struct IslandView: View {
     }
 
     private var expandedContent: some View {
+        expandedContentBody
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Settings...") {
+                    viewModel.collapse()
+                    NotificationCenter.default.post(name: .coderIslandOpenSettings, object: nil)
+                }
+                Button(soundEnabled ? "Mute Sound Effects" : "Unmute Sound Effects") {
+                    soundEnabled.toggle()
+                }
+                Divider()
+                Button("Quit Coder Island") {
+                    NotificationCenter.default.post(name: .coderIslandQuitApp, object: nil)
+                }
+            }
+    }
+
+    private var expandedContentBody: some View {
         VStack(spacing: 4) {
             Spacer().frame(height: topReservedSpace)
 
@@ -315,6 +335,30 @@ struct IslandView: View {
 
                             Button {
                                 showControlMenu = false
+                                soundEnabled.toggle()
+                            } label: {
+                                HStack(spacing: 0) {
+                                    Text(soundEnabled ? "Mute Sound Effects" : "Unmute Sound Effects")
+                                        .lineLimit(1)
+                                        .fixedSize()
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(isSoundHovered ? Color.white.opacity(0.16) : Color.clear)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isSoundHovered = hovering
+                            }
+
+                            Button {
+                                showControlMenu = false
                                 NotificationCenter.default.post(name: .coderIslandQuitApp, object: nil)
                             } label: {
                                 HStack(spacing: 0) {
@@ -339,7 +383,8 @@ struct IslandView: View {
                         .padding(6)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white)
-                        .frame(width: 170, alignment: .leading)
+                        .frame(minWidth: 170, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: true)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(Color.black.opacity(0.92))
