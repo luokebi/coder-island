@@ -21,6 +21,7 @@ class AgentManager: ObservableObject {
     private var scanTimer: Timer?
     private var currentScanInterval: TimeInterval = 3.0
     private var knownSessionIds: Set<String> = []
+    private let monitorStartedAt = Date()
     private let claudeDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
     private let codexDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
     private let traceLogURL = FileManager.default.homeDirectoryForCurrentUser
@@ -43,6 +44,9 @@ class AgentManager: ObservableObject {
         f.formatOptions = [.withInternetDateTime]
         return f
     }()
+
+    private static let codexDesktopStartupVisibilityGrace: TimeInterval = 8
+    private static let codexDesktopRecentThreadWindow: TimeInterval = 20
 
     func startMonitoring() {
         scanForSessions()
@@ -220,6 +224,11 @@ class AgentManager: ObservableObject {
                         let oldStatus = self.sessions[idx].status
                         let oldSubtitle = self.sessions[idx].subtitle
                         let incomingCompletionMarker = self.stableCompletionMarker(for: session)
+                        self.promoteAcknowledgedHookCompletionIfNeeded(
+                            existing: self.sessions[idx],
+                            incoming: session,
+                            incomingCompletionMarker: incomingCompletionMarker
+                        )
                         // Don't overwrite a hook-derived marker — it's
                         // authoritative and used to prevent double sounds.
                         if !(self.sessions[idx].completionMarker?.hasPrefix("hook-stop:") == true) {
@@ -375,6 +384,40 @@ class AgentManager: ObservableObject {
         return "fallback:\(session.agentType.rawValue):\(session.id):\(task):\(user):\(assistant)"
     }
 
+    /// The Stop hook fires before Claude's jsonl has necessarily flushed the
+    /// assistant end-turn entry, so the first completion marker we see can be
+    /// a temporary `hook-stop:*` value. If the user clicks the finished card
+    /// immediately, we acknowledge that temporary marker. On the next scan,
+    /// Claude may report the exact same completed turn with a different stable
+    /// marker (assistant uuid / timestamp / fallback marker), which used to
+    /// resurrect the dismissed card. When the visible completion content still
+    /// matches, promote the acknowledged hook marker to the stable transcript
+    /// marker so the completion stays dismissed.
+    private func promoteAcknowledgedHookCompletionIfNeeded(
+        existing: AgentSession,
+        incoming: AgentSession,
+        incomingCompletionMarker: String?
+    ) {
+        guard let acknowledged = existing.acknowledgedCompletionMarker,
+              acknowledged.hasPrefix("hook-stop:"),
+              existing.completionMarker == acknowledged,
+              incoming.status.isRecentlyFinished,
+              let incomingCompletionMarker,
+              completionSignature(for: existing) == completionSignature(for: incoming) else {
+            return
+        }
+
+        existing.completionMarker = incomingCompletionMarker
+        existing.acknowledgedCompletionMarker = incomingCompletionMarker
+    }
+
+    private func completionSignature(for session: AgentSession) -> String {
+        let task = session.taskName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = (session.lastUserMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let assistant = (session.lastAssistantMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(task)\u{1F}\(user)\u{1F}\(assistant)"
+    }
+
     private func rescheduleScanTimer(interval: TimeInterval) {
         guard abs(currentScanInterval - interval) > 0.01 || scanTimer == nil else { return }
         scanTimer?.invalidate()
@@ -506,7 +549,7 @@ class AgentManager: ObservableObject {
         let embeddedPids = findEmbeddedClaudeProcesses()
         for pid in embeddedPids where !knownPids.contains(pid) && !probePIDs.contains(pid) {
             let cwd = getProcessCWD(pid: pid)
-            let taskName = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Claude session"
+            let taskName = cwd.flatMap { ($0 as NSString).lastPathComponent } ?? "Claude session"
             let terminal = detectTerminalForProcess(pid: pid)
 
             // Try to find JSONL for state by matching CWD to projects dir
@@ -809,6 +852,70 @@ class AgentManager: ObservableObject {
             )
         }
 
+        // Claude can terminate a turn with an API/auth/quota failure
+        // without writing stop_hook_summary. In that case the tail often
+        // contains a synthetic assistant error message (isApiErrorMessage)
+        // and/or a trailing `system subtype=api_error`. Treat that as a
+        // terminal error rather than leaving the session stuck in running.
+        let trailingApiError: (subtitle: String?, reason: String)? = {
+            func assistantErrorText(from json: [String: Any]) -> String? {
+                guard let message = json["message"] as? [String: Any],
+                      let content = message["content"] as? [[String: Any]] else { return nil }
+                return content.last(where: { $0["type"] as? String == "text" })
+                    .flatMap { $0["text"] as? String }
+                    .map { String($0.prefix(80)) }
+            }
+
+            func apiErrorSummary(from json: [String: Any]) -> String? {
+                if let error = json["error"] as? String, !error.isEmpty {
+                    return error.replacingOccurrences(of: "_", with: " ")
+                }
+                if let error = json["error"] as? [String: Any] {
+                    if let type = error["type"] as? String, !type.isEmpty {
+                        return type.replacingOccurrences(of: "_", with: " ")
+                    }
+                    if let cause = error["cause"] as? [String: Any],
+                       let code = cause["code"] as? String, !code.isEmpty {
+                        return code.replacingOccurrences(of: "_", with: " ")
+                    }
+                }
+                if let cause = json["cause"] as? [String: Any],
+                   let code = cause["code"] as? String, !code.isEmpty {
+                    return code.replacingOccurrences(of: "_", with: " ")
+                }
+                return nil
+            }
+
+            for line in allLines.reversed() {
+                guard let data = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let type = json["type"] as? String else { continue }
+
+                if type == "assistant" {
+                    if json["isSidechain"] as? Bool == true { continue }
+                    guard json["isApiErrorMessage"] as? Bool == true else { return nil }
+                    let subtitle = assistantErrorText(from: json) ?? apiErrorSummary(from: json) ?? "Claude API error"
+                    let reason = "assistant synthetic api error=\(apiErrorSummary(from: json) ?? "unknown")"
+                    return (subtitle, reason)
+                }
+                if type == "user" {
+                    if json["isSidechain"] as? Bool == true { continue }
+                    return nil
+                }
+                if type == "system" {
+                    let subtype = json["subtype"] as? String
+                    if subtype == "turn_duration" { continue }
+                    if subtype == "api_error" {
+                        let subtitle = apiErrorSummary(from: json) ?? "Claude API error"
+                        let reason = "system api_error code=\(apiErrorSummary(from: json) ?? "unknown")"
+                        return (subtitle, reason)
+                    }
+                    continue
+                }
+            }
+            return nil
+        }()
+
         // Authoritative turn-end marker: Claude Code wrote a
         // `system.stop_hook_summary` after the last user/assistant entry.
         // This is stronger than stop_reason, which can be missing or wrong.
@@ -827,6 +934,14 @@ class AgentManager: ObservableObject {
                 status: .justFinished,
                 reason: "trailing system stop_hook_summary — main agent Stop hook ran",
                 completionMarker: marker
+            )
+        }
+
+        if let trailingApiError {
+            return decided(
+                status: .error,
+                subtitle: trailingApiError.subtitle,
+                reason: trailingApiError.reason
             )
         }
 
@@ -961,15 +1076,15 @@ class AgentManager: ObservableObject {
             }
         case "Read":
             if let path = input["file_path"] as? String {
-                return "Read \(URL(fileURLWithPath: path).lastPathComponent)"
+                return "Read \((path as NSString).lastPathComponent)"
             }
         case "Write":
             if let path = input["file_path"] as? String {
-                return "Write \(URL(fileURLWithPath: path).lastPathComponent)"
+                return "Write \((path as NSString).lastPathComponent)"
             }
         case "Edit":
             if let path = input["file_path"] as? String {
-                return "Edit \(URL(fileURLWithPath: path).lastPathComponent)"
+                return "Edit \((path as NSString).lastPathComponent)"
             }
         case "Grep":
             if let pattern = input["pattern"] as? String {
@@ -1058,21 +1173,25 @@ class AgentManager: ObservableObject {
             if let desktopThread = threads.first(where: { $0.source == "vscode" }),
                FileManager.default.fileExists(atPath: desktopThread.rolloutPath) {
                 let state = parseCodexState(from: desktopThread.rolloutPath)
-                sessions.append(AgentSession(
-                    id: desktopThread.id,
-                    agentType: .codex,
-                    pid: 0,
-                    taskName: cleanCodexThreadName(desktopThread.title),
-                    subtitle: state.subtitle,
-                    status: state.status,
-                    terminalApp: "Codex",
-                    workingDirectory: desktopThread.cwd,
-                    startDate: desktopThread.createdAt,
-                    lastUserMessage: state.lastUserMessage,
-                    lastAssistantMessage: state.lastAssistantMessage,
-                    usageInfo: state.usageInfo
-                ))
-                usedSessionIds.insert(desktopThread.id)
+                if !shouldShowDesktopCodexThread(thread: desktopThread, state: state) {
+                    usedSessionIds.insert(desktopThread.id)
+                } else {
+                    sessions.append(AgentSession(
+                        id: desktopThread.id,
+                        agentType: .codex,
+                        pid: 0,
+                        taskName: cleanCodexThreadName(desktopThread.title),
+                        subtitle: state.subtitle,
+                        status: state.status,
+                        terminalApp: "Codex",
+                        workingDirectory: desktopThread.cwd,
+                        startDate: desktopThread.createdAt,
+                        lastUserMessage: state.lastUserMessage,
+                        lastAssistantMessage: state.lastAssistantMessage,
+                        usageInfo: state.usageInfo
+                    ))
+                    usedSessionIds.insert(desktopThread.id)
+                }
             }
         }
 
@@ -1082,7 +1201,7 @@ class AgentManager: ObservableObject {
         for pid in cliAgentPids {
             let directRollouts = findActiveCodexRollouts(pids: [pid])
             if let path = directRollouts.first {
-                let filename = URL(fileURLWithPath: path).lastPathComponent
+                let filename = (path as NSString).lastPathComponent
                 if let range = filename.range(of: #"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"#, options: .regularExpression) {
                     let sid = String(filename[range])
                     if !usedSessionIds.contains(sid) {
@@ -1133,11 +1252,11 @@ class AgentManager: ObservableObject {
                    let thread = threads.first(where: { $0.id == sid }) {
                     displayName = cleanCodexThreadName(thread.title)
                 } else {
-                    displayName = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Codex"
+                    displayName = cwd.flatMap { ($0 as NSString).lastPathComponent } ?? "Codex"
                 }
             } else {
                 state = SessionState(status: .idle)
-                displayName = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? "Codex"
+                displayName = cwd.flatMap { ($0 as NSString).lastPathComponent } ?? "Codex"
             }
 
             sessions.append(AgentSession(
@@ -1167,13 +1286,48 @@ class AgentManager: ObservableObject {
         let title: String
         let source: String
         let createdAt: Date?
+        let updatedAt: Date?
+    }
+
+    /// Codex Desktop's app-server process is long-lived, and the UI only
+    /// surfaces the newest desktop thread from sqlite. Keep that newest
+    /// thread visible whenever its parsed state is active, finished, or
+    /// error so the card stays on screen until a newer desktop thread
+    /// replaces it. Startup grace only matters for stale idle states
+    /// during app relaunch.
+    static func shouldShowDesktopCodexThread(
+        state: SessionState,
+        threadUpdatedAt: Date?,
+        now: Date = Date(),
+        monitorStartedAt: Date
+    ) -> Bool {
+        if state.status == .running ||
+            state.status == .waiting ||
+            state.status.isRecentlyFinished ||
+            state.status == .error {
+            return true
+        }
+        guard let updatedAt = threadUpdatedAt else { return false }
+        let secondsSinceUpdate = now.timeIntervalSince(updatedAt)
+        let withinStartupGrace = now.timeIntervalSince(monitorStartedAt) <= codexDesktopStartupVisibilityGrace
+        let threadRecentlyUpdated = secondsSinceUpdate <= codexDesktopRecentThreadWindow
+        return withinStartupGrace && threadRecentlyUpdated
+    }
+
+    private func shouldShowDesktopCodexThread(thread: CodexThread, state: SessionState, now: Date = Date()) -> Bool {
+        Self.shouldShowDesktopCodexThread(
+            state: state,
+            threadUpdatedAt: thread.updatedAt,
+            now: now,
+            monitorStartedAt: monitorStartedAt
+        )
     }
 
     private func readCodexThreads(dbPath: String) -> [CodexThread] {
         // 用 JSON 输出避免 title 含 | 导致字段错位
         let task = Process()
         task.launchPath = "/usr/bin/sqlite3"
-        task.arguments = ["-json", dbPath, "SELECT id, rollout_path, cwd, title, source, created_at FROM threads WHERE archived=0 ORDER BY updated_at DESC LIMIT 10;"]
+        task.arguments = ["-json", dbPath, "SELECT id, rollout_path, cwd, title, source, created_at, updated_at FROM threads WHERE archived=0 ORDER BY updated_at DESC LIMIT 10;"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = FileHandle.nullDevice
@@ -1196,9 +1350,15 @@ class AgentManager: ObservableObject {
                     }
                     return nil
                 }()
+                let updatedAt: Date? = {
+                    if let ts = row["updated_at"] as? TimeInterval {
+                        return Date(timeIntervalSince1970: ts)
+                    }
+                    return nil
+                }()
                 return CodexThread(
                     id: id, rolloutPath: rolloutPath, cwd: cwd,
-                    title: title, source: source, createdAt: createdAt
+                    title: title, source: source, createdAt: createdAt, updatedAt: updatedAt
                 )
             }
         } catch { return [] }
@@ -1280,6 +1440,10 @@ class AgentManager: ObservableObject {
         var lastAgentMessage: String?
         var lastUserMessage: String?
         var lastToolCall: String?
+        var lastToolCallArgs: [String: Any]?
+        var pendingApprovalCmd: String?
+        var pendingApprovalJustification: String?
+        var hasToolOutput = false
         var hasResponseItems = false
         var hasUserMessageAfterComplete = false
         var foundTaskComplete = false
@@ -1287,10 +1451,10 @@ class AgentManager: ObservableObject {
         var lastTaskCompleteMarker: String?
         var usageInfo: UsageInfo?
 
-        func decided(status: AgentStatus, subtitle: String? = nil, reason: String, completionMarker: String? = nil) -> SessionState {
+        func decided(status: AgentStatus, subtitle: String? = nil, reason: String, askQuestion: String? = nil, askOptions: [(label: String, description: String)]? = nil, completionMarker: String? = nil) -> SessionState {
             traceParserDecision(
                 parser: "codex",
-                source: URL(fileURLWithPath: path).lastPathComponent,
+                source: (path as NSString).lastPathComponent,
                 status: status,
                 subtitle: subtitle,
                 reason: reason
@@ -1298,6 +1462,8 @@ class AgentManager: ObservableObject {
             return SessionState(
                 status: status,
                 subtitle: subtitle,
+                askQuestion: askQuestion,
+                askOptions: askOptions,
                 lastUserMessage: lastUserMessage,
                 lastAssistantMessage: lastAgentMessage,
                 completionMarker: completionMarker,
@@ -1390,10 +1556,36 @@ class AgentManager: ObservableObject {
                 }
             } else if type == "response_item" {
                 hasResponseItems = true
-                if let itemType = payload["type"] as? String, itemType == "function_call" {
+                let itemType = payload["type"] as? String
+                if itemType == "function_call_output" {
+                    // Walking in reverse: if we see a function_call_output
+                    // before the corresponding function_call, it means the
+                    // tool has already completed (user answered). Track this
+                    // so we don't report request_user_input as still waiting.
+                    hasToolOutput = true
+                } else if itemType == "function_call" {
                     if lastToolCall == nil {
                         let name = payload["name"] as? String ?? "tool"
                         lastToolCall = name
+
+                        if !hasToolOutput,
+                           let argsStr = payload["arguments"] as? String,
+                           let argsData = argsStr.data(using: .utf8),
+                           let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                            // request_user_input: Codex Plan mode question
+                            // (same questions/options shape as Claude AskUserQuestion)
+                            if name == "request_user_input" {
+                                lastToolCallArgs = argsDict
+                            }
+                            // exec_command with require_escalated: Codex is
+                            // waiting for user approval to run a command.
+                            if name == "exec_command",
+                               let perms = argsDict["sandbox_permissions"] as? String,
+                               perms == "require_escalated" {
+                                pendingApprovalCmd = argsDict["cmd"] as? String
+                                pendingApprovalJustification = argsDict["justification"] as? String
+                            }
+                        }
                     }
                 }
             }
@@ -1405,6 +1597,16 @@ class AgentManager: ObservableObject {
         let status: AgentStatus
         let subtitle: String?
 
+        // Detect Codex request_user_input (Plan mode ask) — same as
+        // Claude Code AskUserQuestion but delivered via rollout JSONL
+        // instead of hooks. Show the question in the UI as .waiting.
+        // lastToolCallArgs is only set when the function_call has no
+        // matching function_call_output yet (i.e. still unanswered).
+        let notFinished = lastEventType != "task_complete" && lastEventType != "turn_aborted"
+        let isRequestUserInput = lastToolCallArgs != nil && notFinished
+        // Detect Codex exec_command awaiting approval (require_escalated).
+        let isPendingApproval = pendingApprovalCmd != nil && notFinished
+
         // If user sent a message after the last task_complete, a new task is active
         if lastEventType == "task_complete" && hasUserMessageAfterComplete {
             if let tool = lastToolCall {
@@ -1414,6 +1616,13 @@ class AgentManager: ObservableObject {
                 status = .running
                 subtitle = "Thinking..."
             }
+        } else if isRequestUserInput {
+            status = .waiting
+            let question = extractQuestion(from: lastToolCallArgs)
+            subtitle = question ?? "Waiting for answer..."
+        } else if isPendingApproval {
+            status = .waiting
+            subtitle = pendingApprovalJustification ?? pendingApprovalCmd ?? "Awaiting approval..."
         } else {
             switch lastEventType {
             case "task_complete":
@@ -1448,7 +1657,12 @@ class AgentManager: ObservableObject {
             }
         }
 
+        let askQuestion: String? = isRequestUserInput ? extractQuestion(from: lastToolCallArgs) : nil
+        let askOptions: [(label: String, description: String)]? = isRequestUserInput ? extractOptions(from: lastToolCallArgs) : nil
+
         let reason: String = {
+            if isRequestUserInput { return "codex request_user_input" }
+            if isPendingApproval { return "codex exec_command require_escalated" }
             switch lastEventType {
             case "task_complete":
                 return "event task_complete"
@@ -1464,7 +1678,7 @@ class AgentManager: ObservableObject {
             }
         }()
 
-        return decided(status: status, subtitle: subtitle, reason: reason, completionMarker: lastTaskCompleteMarker)
+        return decided(status: status, subtitle: subtitle, reason: reason, askQuestion: askQuestion, askOptions: askOptions, completionMarker: lastTaskCompleteMarker)
     }
 
     private func cleanCodexThreadName(_ name: String) -> String {

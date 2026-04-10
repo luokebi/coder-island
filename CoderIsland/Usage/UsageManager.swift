@@ -38,9 +38,10 @@ final class UsageManager: ObservableObject {
     private init() {}
 
     func start() {
-        // First probe shortly after launch (let app finish startup).
+        // Read cached rate_limits shortly after launch. This is instant
+        // (just a file read) — no child process, no TCC prompts.
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             await self?.refresh()
         }
         scheduleBackgroundTimer()
@@ -115,56 +116,56 @@ final class UsageManager: ObservableObject {
     }
 
     private func probeClaude() async -> UsageInfo? {
-        guard let binary = UsageProbeDebug.findClaudeBinary() else {
-            Self.trace("claude binary not found")
+        // Read rate_limits from the cache file written by our statusLine
+        // script. This avoids spawning a `claude` child process which
+        // triggers macOS TCC folder-permission prompts.
+        let cacheURL = HookInstaller.claudeRateLimitsCache
+        guard let data = try? Data(contentsOf: cacheURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Self.trace("claude: no rate_limits cache at \(cacheURL.path)")
             return nil
         }
-        let cwd = UsageProbeDebug.trustedProbeCWD()
-        Self.trace("claude probe cwd=\(cwd?.path ?? "<home>")")
-        let result = await CLIStatusProbe.run(
-            binary: binary,
-            // `--allowed-tools ""` makes the spawned claude harmless —
-            // it can't run anything even if our keystrokes were
-            // misinterpreted (matches CodexBar).
-            args: ["--allowed-tools", ""],
-            inputCommand: "/usage",
-            // Claude's `/usage` opens a slash-command palette first.
-            // These two pickers point to the rate-limits panel; when
-            // either appears in the captured text, press Enter to open
-            // it (matches CodexBar's `commandPaletteSends`).
-            confirmPalettePrompts: [
-                "Show plan",
-                "Show plan usage limits",
-                "Yes, I trust this folder",
-                "Press Enter to continue",
-            ],
-            // Periodic Enter heartbeat (every 0.8s) helps `/usage`
-            // advance through any palette frames whose label text we
-            // don't know explicitly.
-            periodicEnterEvery: 0.8,
-            stopSubstrings: [
-                "Current week (all models)",
-                "Current week (Opus)",
-                "Current week (Sonnet only)",
-                "Current session",
-                "Failed to load usage data",
-            ],
-            // Keep reading 2 more seconds after the stop substring
-            // matches so the panel finishes rendering.
-            settleAfterStop: 2.0,
-            timeout: 18,
-            cwd: cwd
-        )
-        Self.trace("claude probe done timedOut=\(result.timedOut) launchFailed=\(result.launchFailed) bytes=\(result.stdout.count)")
-        guard !result.launchFailed else { return nil }
-        // Always dump raw stdout while we're iterating on the parser.
-        try? result.stdout.write(
-            to: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Logs/CoderIsland/usage-claude-raw.log"),
-            atomically: true, encoding: .utf8
-        )
-        let parsed = UsageStatusParser.parseClaude(result.stdout)
-        return parsed
+
+        var info = UsageInfo()
+
+        // The statusLine JSON has the same shape as Codex token_count
+        // rate_limits: { primary: { used_percent, window_minutes, resets_at }, secondary: {...}, plan_type }
+        // OR the shape from Claude Code: { five_hour: { percentage }, seven_day: { percentage } }
+        // Handle both.
+        if let primary = json["primary"] as? [String: Any] {
+            info.primaryPercentUsed = primary["used_percent"] as? Double
+            info.primaryWindowMinutes = primary["window_minutes"] as? Int
+            if let r = primary["resets_at"] as? Double { info.primaryResetsAt = Date(timeIntervalSince1970: r) }
+            else if let r = primary["resets_at"] as? Int { info.primaryResetsAt = Date(timeIntervalSince1970: TimeInterval(r)) }
+        }
+        if let secondary = json["secondary"] as? [String: Any] {
+            info.secondaryPercentUsed = secondary["used_percent"] as? Double
+            info.secondaryWindowMinutes = secondary["window_minutes"] as? Int
+            if let r = secondary["resets_at"] as? Double { info.secondaryResetsAt = Date(timeIntervalSince1970: r) }
+            else if let r = secondary["resets_at"] as? Int { info.secondaryResetsAt = Date(timeIntervalSince1970: TimeInterval(r)) }
+        }
+        // Alternative shape: five_hour / seven_day (vibe-island compat)
+        if let fiveHour = json["five_hour"] as? [String: Any], info.primaryPercentUsed == nil {
+            info.primaryPercentUsed = (fiveHour["used_percentage"] as? Double) ?? (fiveHour["percentage"] as? Double)
+            info.primaryWindowMinutes = 300
+            if let r = fiveHour["resets_at"] as? Double { info.primaryResetsAt = Date(timeIntervalSince1970: r) }
+            else if let r = fiveHour["resets_at"] as? Int { info.primaryResetsAt = Date(timeIntervalSince1970: TimeInterval(r)) }
+        }
+        if let sevenDay = json["seven_day"] as? [String: Any], info.secondaryPercentUsed == nil {
+            info.secondaryPercentUsed = (sevenDay["used_percentage"] as? Double) ?? (sevenDay["percentage"] as? Double)
+            info.secondaryWindowMinutes = 10080
+            if let r = sevenDay["resets_at"] as? Double { info.secondaryResetsAt = Date(timeIntervalSince1970: r) }
+            else if let r = sevenDay["resets_at"] as? Int { info.secondaryResetsAt = Date(timeIntervalSince1970: TimeInterval(r)) }
+        }
+
+        info.planType = json["plan_type"] as? String
+
+        guard info.primaryPercentUsed != nil || info.secondaryPercentUsed != nil else {
+            Self.trace("claude: cache present but no rate_limits fields")
+            return nil
+        }
+        Self.trace("claude: read from cache primary=\(info.primaryPercentUsed.map { String($0) } ?? "nil")%")
+        return info
     }
 
     private func probeCodex() async -> UsageInfo? {

@@ -12,11 +12,18 @@ struct IslandView: View {
     @State private var isSoundHovered = false
     @State private var isQuitHovered = false
     @State private var hoveredUsageButton: AgentType?
+    @State private var usagePopoverShowTimer: Timer?
     @State private var usagePopoverDismissTimer: Timer?
     @ObservedObject private var usageManager: UsageManager = .shared
     @AppStorage("soundEnabled") private var soundEnabled: Bool = true
 
     private let barColor = Color.black
+    private let usagePopoverShowDelay: TimeInterval = 0.15
+    private let usageButtonSize = CGSize(width: 26, height: 22)
+    private let usageButtonSpacing: CGFloat = 6
+    private let usageOverlayTopInset: CGFloat = 6
+    private let usageOverlayLeadingInset: CGFloat = 12
+    private let usagePopoverTopGap: CGFloat = 6
     // Extra padding around the shape so corners + shadow are visible
     static let inset: CGFloat = 24
 
@@ -276,12 +283,24 @@ struct IslandView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .top)
         .overlay(alignment: .topLeading) {
-            usageButtonsOverlay
-                // Icons sit on the left edge, beside the camera cutout —
-                // they don't need to be pushed below it. Use the same
-                // small offset for notch and non-notch Macs.
-                .padding(.top, 6)
-                .padding(.leading, 12)
+            ZStack(alignment: .topLeading) {
+                usageButtonsOverlay
+
+                if let hoveredUsageButton {
+                    usagePopover(for: hoveredUsageButton, usage: aggregatedUsage(for: hoveredUsageButton))
+                        .fixedSize()
+                        .onHover { hovering in
+                            handleUsageHover(type: hoveredUsageButton, hovering: hovering, source: .popover)
+                        }
+                        .padding(.leading, usagePopoverLeadingOffset(for: hoveredUsageButton))
+                        .padding(.top, usageButtonSize.height + usagePopoverTopGap)
+                }
+            }
+            // Icons sit on the left edge, beside the camera cutout —
+            // they don't need to be pushed below it. Use the same
+            // small offset for notch and non-notch Macs.
+            .padding(.top, usageOverlayTopInset)
+            .padding(.leading, usageOverlayLeadingInset)
         }
         .overlay(alignment: .topTrailing) {
             ZStack(alignment: .topTrailing) {
@@ -417,7 +436,7 @@ struct IslandView: View {
     @ViewBuilder
     private var usageButtonsOverlay: some View {
         if showUsageLimits {
-            HStack(spacing: 6) {
+            HStack(spacing: usageButtonSpacing) {
                 usageButton(for: .claudeCode)
                 usageButton(for: .codex)
             }
@@ -443,26 +462,10 @@ struct IslandView: View {
             .scaleEffect(0.9)
             .opacity(isAvailable ? 1.0 : 0.35)
         }
-        .frame(width: 26, height: 22)
+        .frame(width: usageButtonSize.width, height: usageButtonSize.height)
         .contentShape(RoundedRectangle(cornerRadius: 7))
         .onHover { hovering in
             handleUsageHover(type: type, hovering: hovering, source: .icon)
-        }
-        // Float the popover so it doesn't affect the HStack's layout
-        // (otherwise the popover's minWidth pushes the sibling button
-        // out of the bar). `.overlay` is sized independently of the
-        // anchor view; offset moves it below the button. The popover
-        // accepts hover events itself so the cursor can travel from
-        // the icon onto the card without dismissing it.
-        .overlay(alignment: .topLeading) {
-            if isHovering {
-                usagePopover(for: type, usage: usage)
-                    .fixedSize()
-                    .offset(x: 0, y: 28)
-                    .onHover { hovering in
-                        handleUsageHover(type: type, hovering: hovering, source: .popover)
-                    }
-            }
         }
     }
 
@@ -470,17 +473,28 @@ struct IslandView: View {
 
     private func handleUsageHover(type: AgentType, hovering: Bool, source: UsageHoverSource) {
         if hovering {
+            usagePopoverShowTimer?.invalidate()
             usagePopoverDismissTimer?.invalidate()
-            usagePopoverDismissTimer = nil
-            hoveredUsageButton = type
             if source == .icon {
                 usageManager.refreshIfStale()
+                usagePopoverShowTimer = Timer.scheduledTimer(
+                    withTimeInterval: usagePopoverShowDelay, repeats: false
+                ) { _ in
+                    DispatchQueue.main.async {
+                        hoveredUsageButton = type
+                    }
+                }
+            } else {
+                usagePopoverShowTimer = nil
+                hoveredUsageButton = type
             }
         } else {
             // Defer dismissal a tick so the cursor can travel between
             // the icon and the popover without flicker. If a hover
             // begins on the other element before the timer fires, the
             // hovering branch above invalidates it.
+            usagePopoverShowTimer?.invalidate()
+            usagePopoverShowTimer = nil
             usagePopoverDismissTimer?.invalidate()
             usagePopoverDismissTimer = Timer.scheduledTimer(
                 withTimeInterval: 0.25, repeats: false
@@ -503,8 +517,6 @@ struct IslandView: View {
                 Text("Rate limits remaining")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.92))
-                Spacer(minLength: 8)
-                refreshControl
             }
 
             if let usage = usage {
@@ -628,6 +640,15 @@ struct IslandView: View {
         switch type {
         case .claudeCode: return usageManager.claudeUsage
         case .codex:      return usageManager.codexUsage
+        }
+    }
+
+    private func usagePopoverLeadingOffset(for type: AgentType) -> CGFloat {
+        switch type {
+        case .claudeCode:
+            return 0
+        case .codex:
+            return usageButtonSize.width + usageButtonSpacing
         }
     }
 

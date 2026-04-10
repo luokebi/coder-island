@@ -28,6 +28,20 @@ struct ParserTestCase {
     }
 }
 
+/// A small pure helper regression test. These cover visibility logic
+/// that doesn't need a jsonl fixture but still guards status handling.
+struct LogicTestCase {
+    let name: String
+    let run: () -> Bool
+    let note: String?
+
+    init(_ name: String, note: String? = nil, run: @escaping () -> Bool) {
+        self.name = name
+        self.run = run
+        self.note = note
+    }
+}
+
 /// Runs every parser test case, writes a report to
 /// `~/Library/Logs/CoderIsland/parser-tests.log`, and returns a
 /// human-readable summary string.
@@ -191,6 +205,55 @@ enum ParserTests {
             "timestamp": ts,
             "hookCount": 0,
             "preventedContinuation": false
+        ]
+    }
+
+    private static func systemApiError(
+        code: String,
+        ts: String = isoTS(0)
+    ) -> [String: Any] {
+        return [
+            "type": "system",
+            "subtype": "api_error",
+            "level": "error",
+            "cause": [
+                "code": code,
+                "path": "https://api.anthropic.com/v1/messages?beta=true",
+                "errno": 0
+            ],
+            "error": [
+                "type": NSNull(),
+                "cause": [
+                    "code": code,
+                    "path": "https://api.anthropic.com/v1/messages?beta=true",
+                    "errno": 0
+                ]
+            ],
+            "timestamp": ts
+        ]
+    }
+
+    private static func assistantApiError(
+        _ text: String,
+        error: String,
+        ts: String = isoTS(0)
+    ) -> [String: Any] {
+        return [
+            "type": "assistant",
+            "timestamp": ts,
+            "isApiErrorMessage": true,
+            "error": error,
+            "message": [
+                "id": UUID().uuidString,
+                "model": "<synthetic>",
+                "role": "assistant",
+                "content": [
+                    ["type": "text", "text": text]
+                ],
+                "stop_reason": "stop_sequence",
+                "stop_sequence": "",
+                "type": "message"
+            ]
         ]
     }
 
@@ -359,6 +422,22 @@ enum ParserTests {
         ))
 
         cases.append(ParserTestCase(
+            "synthetic api error at tail becomes error",
+            entries: [
+                userText("continue", ts: isoTS(-20)),
+                systemApiError(code: "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR", ts: isoTS(-5)),
+                assistantApiError(
+                    "Your account does not have access to Claude Code. Please run /login.",
+                    error: "authentication_failed",
+                    ts: isoTS(-4)
+                )
+            ],
+            expectedStatus: .error,
+            expectedSubtitleContains: "/login",
+            note: "Claude can end a turn with api_error + synthetic assistant error instead of stop_hook_summary"
+        ))
+
+        cases.append(ParserTestCase(
             "interrupted user message",
             entries: [
                 userText("go", ts: isoTS(-20)),
@@ -393,6 +472,68 @@ enum ParserTests {
         return cases
     }
 
+    static func logicCases() -> [LogicTestCase] {
+        let now = Date()
+
+        return [
+            LogicTestCase(
+                "Codex desktop running state stays visible",
+                note: "running/waiting should never depend on startup grace"
+            ) {
+                AgentManager.shouldShowDesktopCodexThread(
+                    state: AgentManager.SessionState(status: .running),
+                    threadUpdatedAt: nil,
+                    now: now,
+                    monitorStartedAt: now.addingTimeInterval(-60)
+                )
+            },
+            LogicTestCase(
+                "Codex desktop startup grace shows recently updated finished thread",
+                note: "avoids a startup gap before the active rollout writes task_started"
+            ) {
+                AgentManager.shouldShowDesktopCodexThread(
+                    state: AgentManager.SessionState(status: .justFinished),
+                    threadUpdatedAt: now.addingTimeInterval(-3),
+                    now: now,
+                    monitorStartedAt: now.addingTimeInterval(-2)
+                )
+            },
+            LogicTestCase(
+                "Codex desktop recent finished thread survives startup grace",
+                note: "the newest desktop thread should remain visible after completion"
+            ) {
+                AgentManager.shouldShowDesktopCodexThread(
+                    state: AgentManager.SessionState(status: .justFinished),
+                    threadUpdatedAt: now.addingTimeInterval(-3),
+                    now: now,
+                    monitorStartedAt: now.addingTimeInterval(-30)
+                )
+            },
+            LogicTestCase(
+                "Codex desktop old finished thread still stays visible",
+                note: "the newest desktop thread should not disappear just because it has been finished for a while"
+            ) {
+                AgentManager.shouldShowDesktopCodexThread(
+                    state: AgentManager.SessionState(status: .justFinished),
+                    threadUpdatedAt: now.addingTimeInterval(-300),
+                    now: now,
+                    monitorStartedAt: now.addingTimeInterval(-30)
+                )
+            },
+            LogicTestCase(
+                "Codex desktop error thread also stays visible",
+                note: "the newest desktop thread should keep showing an error state until replaced"
+            ) {
+                AgentManager.shouldShowDesktopCodexThread(
+                    state: AgentManager.SessionState(status: .error),
+                    threadUpdatedAt: now.addingTimeInterval(-600),
+                    now: now,
+                    monitorStartedAt: now.addingTimeInterval(-2)
+                )
+            }
+        ]
+    }
+
     // MARK: - Runner
 
     struct TestResult {
@@ -418,6 +559,9 @@ enum ParserTests {
         for testCase in allCases() {
             let result = runOne(manager: manager, tempDir: tempDir, testCase: testCase)
             results.append(result)
+        }
+        for testCase in logicCases() {
+            results.append(runLogicOne(testCase: testCase))
         }
 
         let passed = results.filter(\.passed).count
@@ -519,5 +663,16 @@ enum ParserTests {
                 try? handle.write(contentsOf: data)
             }
         }
+    }
+
+    private static func runLogicOne(testCase: LogicTestCase) -> TestResult {
+        let passed = testCase.run()
+        return TestResult(
+            name: testCase.name,
+            passed: passed,
+            expected: "logic helper returns true",
+            actual: passed ? "logic helper returned true" : "logic helper returned false",
+            note: testCase.note
+        )
     }
 }

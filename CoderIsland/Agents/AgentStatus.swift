@@ -579,7 +579,7 @@ class AgentSession: ObservableObject, Identifiable {
 
         let expected = normalizedWarpTitle(desiredWarpTabTitle())
         let taskLabel = normalizedWarpTitle(taskName)
-        let cwdLabel = workingDirectory.map { normalizedWarpTitle(URL(fileURLWithPath: $0).lastPathComponent) }
+        let cwdLabel = workingDirectory.map { normalizedWarpTitle(($0 as NSString).lastPathComponent) }
 
         var queue: [AXUIElement] = [window]
         var visited: Set<CFHashCode> = []
@@ -817,7 +817,7 @@ class AgentSession: ObservableObject, Identifiable {
     private func jumpToAppleTerminalTabIfPossible() {
         let expected = normalizedWarpTitle(desiredTerminalTabTitle())
         let taskLabel = normalizedWarpTitle(taskName)
-        let cwdLabel = workingDirectory.map { normalizedWarpTitle(URL(fileURLWithPath: $0).lastPathComponent) }
+        let cwdLabel = workingDirectory.map { normalizedWarpTitle(($0 as NSString).lastPathComponent) }
 
         for _ in 0..<2 {
             if let tabButton = findTerminalTabButtonByAccessibility(expected: expected, taskLabel: taskLabel, cwdLabel: cwdLabel),
@@ -943,7 +943,7 @@ class AgentSession: ObservableObject, Identifiable {
             return normalizedWarpTitle(candidate)
         }
 
-        let pathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+        let pathComponent = (trimmed as NSString).lastPathComponent
         let candidate = pathComponent.isEmpty ? trimmed : pathComponent
         return normalizedWarpTitle(candidate)
     }
@@ -955,7 +955,7 @@ class AgentSession: ObservableObject, Identifiable {
     private func pathTitleMatchesWorkingDirectory(_ title: String, workingDirectory: String) -> Bool {
         let normalizedTitle = normalizedWarpTitle(title)
         let normalizedWorkingDirectory = normalizedWarpTitle(workingDirectory)
-        let normalizedBasename = normalizedWarpTitle(URL(fileURLWithPath: workingDirectory).lastPathComponent)
+        let normalizedBasename = normalizedWarpTitle((workingDirectory as NSString).lastPathComponent)
 
         if normalizedTitle == normalizedBasename {
             return true
@@ -1066,7 +1066,7 @@ class AgentSession: ObservableObject, Identifiable {
             return
         }
 
-        let ttyBasename = URL(fileURLWithPath: ttyPath).lastPathComponent
+        let ttyBasename = (ttyPath as NSString).lastPathComponent
         let escapedFull = appleScriptEscaped(ttyPath)
         let escapedBase = appleScriptEscaped(ttyBasename)
 

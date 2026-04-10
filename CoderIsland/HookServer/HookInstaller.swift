@@ -12,6 +12,17 @@ class HookInstaller {
     private let permissionScript = "coder-island-permission"
     private let askScript = "coder-island-ask"
     private let eventScript = "coder-island-event"
+    private let statusLineScript = "coder-island-statusline"
+
+    /// Cache directory for statusLine data (rate limits etc.)
+    static let cacheDir: URL = {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".coder-island/cache")
+    }()
+    /// Path where the statusLine script writes Claude rate_limits JSON.
+    static let claudeRateLimitsCache: URL = {
+        cacheDir.appendingPathComponent("claude-rl.json")
+    }()
 
     /// Claude Code lifecycle hook event names. The event relay script is
     /// registered under each of these keys in ~/.claude/settings.json.
@@ -154,19 +165,81 @@ class HookInstaller {
         exit 0
         """
 
+        // StatusLine script: Claude Code calls this on every assistant
+        // message with JSON on stdin containing rate_limits. We extract
+        // and cache it so the app can read usage without spawning a
+        // child process (which would trigger TCC folder prompts).
+        let cacheDir = HookInstaller.cacheDir.path
+        let rlCache = HookInstaller.claudeRateLimitsCache.path
+        let statusLineContent = """
+        #!/bin/bash
+        input=$(cat)
+        _rl=$(echo "$input" | python3 -c "
+        import sys,json
+        try:
+            d=json.load(sys.stdin)
+            rl=d.get('rate_limits')
+            if rl: print(json.dumps(rl))
+        except: pass
+        " 2>/dev/null)
+        if [ -n "$_rl" ]; then
+            mkdir -p "\(cacheDir)"
+            echo "$_rl" > "\(rlCache)"
+        fi
+        """
+
         let permissionPath = hookDir.appendingPathComponent(permissionScript)
         let askPath = hookDir.appendingPathComponent(askScript)
         let eventPath = hookDir.appendingPathComponent(eventScript)
+        let statusLinePath = hookDir.appendingPathComponent(statusLineScript)
 
         try? permissionContent.write(to: permissionPath, atomically: true, encoding: .utf8)
         try? askContent.write(to: askPath, atomically: true, encoding: .utf8)
         try? eventContent.write(to: eventPath, atomically: true, encoding: .utf8)
+        try? statusLineContent.write(to: statusLinePath, atomically: true, encoding: .utf8)
 
         chmod(permissionPath.path, 0o755)
         chmod(askPath.path, 0o755)
         chmod(eventPath.path, 0o755)
+        chmod(statusLinePath.path, 0o755)
 
         debugLog("[HookInstaller] Scripts installed at \(hookDir.path)")
+    }
+
+    /// Rewrite the statusLine script to chain to an existing command
+    /// (e.g. vibe-island's statusLine) so both apps receive the data.
+    /// Also saves the original command so uninstall can restore it.
+    private func rewriteStatusLineScript(chainTo originalCmd: String) {
+        let cacheDir = HookInstaller.cacheDir.path
+        let rlCache = HookInstaller.claudeRateLimitsCache.path
+        let chainFile = hookDir.appendingPathComponent("statusline-chain-to")
+
+        // Save original command for uninstall restore
+        try? originalCmd.write(to: chainFile, atomically: true, encoding: .utf8)
+
+        let content = """
+        #!/bin/bash
+        input=$(cat)
+        _rl=$(echo "$input" | python3 -c "
+        import sys,json
+        try:
+            d=json.load(sys.stdin)
+            rl=d.get('rate_limits')
+            if rl: print(json.dumps(rl))
+        except: pass
+        " 2>/dev/null)
+        if [ -n "$_rl" ]; then
+            mkdir -p "\(cacheDir)"
+            echo "$_rl" > "\(rlCache)"
+        fi
+        # Chain to original statusLine
+        echo "$input" | \(originalCmd)
+        """
+
+        let path = hookDir.appendingPathComponent(statusLineScript)
+        try? content.write(to: path, atomically: true, encoding: .utf8)
+        chmod(path.path, 0o755)
+        debugLog("[HookInstaller] statusLine chained to \(originalCmd)")
     }
 
     private func registerInClaudeSettings() {
@@ -240,6 +313,21 @@ class HookInstaller {
 
         settings["hooks"] = hooks
 
+        // Register our statusLine wrapper. If another statusLine already
+        // exists (e.g. vibe-island), we save its command and chain to it
+        // from our script so both work.
+        let statusLinePath = hookDir.appendingPathComponent(statusLineScript).path
+        let existingStatusLine = settings["statusLine"] as? [String: Any]
+        let existingCmd = existingStatusLine?["command"] as? String
+        if existingCmd != nil && existingCmd?.contains("coder-island") != true {
+            // Rewrite our script to chain to the original
+            rewriteStatusLineScript(chainTo: existingCmd!)
+        }
+        settings["statusLine"] = [
+            "type": "command",
+            "command": statusLinePath
+        ]
+
         if let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: settingsPath)
             debugLog("[HookInstaller] Hooks registered in settings.json")
@@ -268,6 +356,20 @@ class HookInstaller {
             }
 
             if hooks.isEmpty { settings.removeValue(forKey: "hooks") } else { settings["hooks"] = hooks }
+        }
+
+        // Restore original statusLine or remove ours
+        if let sl = settings["statusLine"] as? [String: Any],
+           let cmd = sl["command"] as? String,
+           cmd.contains("coder-island") {
+            let chainFile = hookDir.appendingPathComponent("statusline-chain-to")
+            if let original = try? String(contentsOf: chainFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+               !original.isEmpty {
+                settings["statusLine"] = ["type": "command", "command": original]
+            } else {
+                settings.removeValue(forKey: "statusLine")
+            }
+            try? FileManager.default.removeItem(at: chainFile)
         }
 
         if let writeData = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) {
