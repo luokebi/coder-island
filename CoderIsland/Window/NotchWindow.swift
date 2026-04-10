@@ -67,7 +67,7 @@ private extension NSView {
     }
 }
 
-class NotchWindow: NSWindow {
+class NotchWindow: NSPanel {
     private let agentManager: AgentManager
     private var clickOutsideMonitor: Any?
     private var mouseMovedGlobalMonitor: Any?
@@ -238,7 +238,7 @@ class NotchWindow: NSWindow {
 
         super.init(
             contentRect: frame,
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )

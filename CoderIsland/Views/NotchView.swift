@@ -776,19 +776,21 @@ struct SessionCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AgentRowView(
-                session: session,
-                hasAskCard: hasAttentionCard,
-                hasPendingPermission: pendingPermission != nil
-            )
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    session.jumpToTerminal()
-                    if session.status.isRecentlyFinished {
-                        agentManager.acknowledgeRecentCompletion(sessionId: session.id)
-                    }
-                    viewModel.collapse()
+            Button {
+                session.jumpToTerminal()
+                if session.status.isRecentlyFinished {
+                    agentManager.acknowledgeRecentCompletion(sessionId: session.id)
                 }
+                viewModel.collapse()
+            } label: {
+                AgentRowView(
+                    session: session,
+                    hasAskCard: hasAttentionCard,
+                    hasPendingPermission: pendingPermission != nil
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PassthroughButtonStyle())
 
             if let perm = pendingPermission {
                 PermissionBannerView(
@@ -878,5 +880,15 @@ struct NotchShape: Shape {
 
         path.closeSubpath()
         return path
+    }
+}
+
+/// A transparent button style that renders its label as-is without any
+/// default button chrome. Unlike `onTapGesture`, a `Button` correctly
+/// receives the first mouse-down in a `nonactivatingPanel` (NSPanel)
+/// even when the app is not focused.
+struct PassthroughButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
