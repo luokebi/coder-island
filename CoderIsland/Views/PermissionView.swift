@@ -240,40 +240,47 @@ struct SwiftUIOptionRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Number circle
-            ZStack {
-                Circle()
-                    .fill(tealColor.opacity(0.3))
-                    .frame(width: 26, height: 26)
-                Text("\(index + 1)")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundColor(tealColor)
-            }
-
-            // Label + description
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                if !desc.isEmpty {
-                    Text(desc)
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                        .lineLimit(1)
+        // Use SwiftUI `Button` (not `.onTapGesture`) so the first click
+        // lands on the button even when the Notch window is not the key
+        // window — AppKit's window-activation gesture swallows the first
+        // click for tap-gesture recognizers, but Button has special
+        // handling. Matches PermissionOptionRow's pattern.
+        Button(action: action) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(tealColor.opacity(0.3))
+                        .frame(width: 26, height: 26)
+                    Text("\(index + 1)")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(tealColor)
                 }
-            }
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                    if !desc.isEmpty {
+                        Text(desc)
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isHovered ? optBg.opacity(1) : optBg.opacity(0.7))
+            )
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isHovered ? optBg.opacity(1) : optBg.opacity(0.7))
-        )
+        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .onTapGesture { action() }
     }
 }
 

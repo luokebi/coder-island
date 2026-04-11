@@ -58,6 +58,44 @@ class HookInstaller {
 
     private init() {}
 
+    /// Bash snippet injected at the top of every generated hook script.
+    /// Fails fast (exit 0, no-op) when a usable CoderIsland.app cannot be
+    /// found. A "usable" app is one that actually ships the helper binary
+    /// at Contents/Helpers/coder-island-hook — not just any bundle with
+    /// the matching bundle id. This matters on dev machines (and after
+    /// failed uninstalls) where multiple Coder Island.app copies can
+    /// exist in Spotlight's index, some of them stale. The guard checks
+    /// standard install locations first, then a cached path, then
+    /// iterates all mdfind results and picks the first one whose helper
+    /// is executable. On success the path is cached for next time.
+    private static let appGuard = """
+    # ── Coder Island app guard (fail-fast if helper is missing) ──
+    _CI_HOOK="Contents/Helpers/coder-island-hook"
+    _CI_APP=""
+    for _CI_P in "/Applications/CoderIsland.app" "$HOME/Applications/CoderIsland.app"; do
+        if [ -x "$_CI_P/$_CI_HOOK" ]; then _CI_APP="$_CI_P"; break; fi
+    done
+    if [ -z "$_CI_APP" ]; then
+        _CI_CACHE="$HOME/.coder-island/cache/app-path"
+        if [ -f "$_CI_CACHE" ]; then
+            _CI_P=$(cat "$_CI_CACHE" 2>/dev/null)
+            [ -n "$_CI_P" ] && [ -x "$_CI_P/$_CI_HOOK" ] && _CI_APP="$_CI_P"
+        fi
+    fi
+    if [ -z "$_CI_APP" ]; then
+        while IFS= read -r _CI_P; do
+            if [ -n "$_CI_P" ] && [ -x "$_CI_P/$_CI_HOOK" ]; then
+                _CI_APP="$_CI_P"
+                mkdir -p "$HOME/.coder-island/cache"
+                echo "$_CI_P" > "$HOME/.coder-island/cache/app-path"
+                break
+            fi
+        done <<< "$(/usr/bin/mdfind 'kMDItemCFBundleIdentifier == "com.coderisland.app"' 2>/dev/null)"
+    fi
+    [ -n "$_CI_APP" ] || exit 0
+    # ─────────────────────────────────────────────────────────────
+    """
+
     func install() {
         createHookScripts()
         registerInClaudeSettings()
@@ -67,101 +105,33 @@ class HookInstaller {
     private func createHookScripts() {
         try? FileManager.default.createDirectory(at: hookDir, withIntermediateDirectories: true)
 
+        // Thin launcher: the guard resolves $_CI_APP (and exits 0 if the
+        // app is missing), then we exec into the real helper binary bundled
+        // inside Contents/Helpers/. The helper owns all the interesting
+        // work — stdin → UDS → reply. Keeping these scripts tiny means
+        // the wire protocol lives in the .app (version-synced) rather
+        // than in files scattered under ~/.coder-island.
         let permissionContent = """
         #!/bin/bash
-        # Coder Island - Permission Hook
-        LOG="$HOME/Library/Logs/CoderIsland/permission-hook.log"
-        mkdir -p "$(dirname "$LOG")"
-        {
-          echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
-          echo "pid=$$"
-        } >> "$LOG"
-
-        INPUT=$(cat)
-        echo "INPUT: $INPUT" >> "$LOG"
-
-        # Skip AskUserQuestion — handled by the separate ask hook
-        TOOL=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('toolName', d.get('tool_name','')))" 2>/dev/null)
-        echo "TOOL=$TOOL" >> "$LOG"
-        if [ "$TOOL" = "AskUserQuestion" ]; then
-            echo "skip (ask)" >> "$LOG"
-            exit 0
-        fi
-
-        # The HookServer builds the full hook output JSON for us — we just echo it verbatim.
-        RESPONSE=$(echo "$INPUT" | curl -s -X POST http://localhost:\(HookServer.port)/permission \\
-            -H "Content-Type: application/json" \\
-            -d @- \\
-            --max-time 600 2>>"$LOG")
-        CURL_EXIT=$?
-        echo "curl_exit=$CURL_EXIT" >> "$LOG"
-        echo "RESPONSE: $RESPONSE" >> "$LOG"
-
-        if [ $CURL_EXIT -eq 0 ] && [ -n "$RESPONSE" ]; then
-            echo "$RESPONSE"
-        else
-            echo "no response; letting claude prompt normally" >> "$LOG"
-        fi
+        # Coder Island - Permission Hook (launcher)
+        \(Self.appGuard)
+        exec "$_CI_APP/Contents/Helpers/coder-island-hook" permission
         exit 0
         """
 
-        // AskUserQuestion hook: intercepts elicitation, sends to app, returns user's choice
         let askContent = """
         #!/bin/bash
-        # Coder Island - AskUserQuestion Hook
-        # Intercepts Claude's questions, shows in Coder Island UI, returns user selection
-        INPUT=$(cat)
-
-        # Check if this is an AskUserQuestion by looking for "questions" in the input
-        HAS_QUESTIONS=$(echo "$INPUT" | python3 -c "
-        import sys,json
-        try:
-            d=json.load(sys.stdin)
-            # Check tool_input or direct questions field
-            ti = d.get('tool_input', d)
-            if 'questions' in ti:
-                print('yes')
-            else:
-                print('no')
-        except:
-            print('no')
-        " 2>/dev/null)
-
-        if [ "$HAS_QUESTIONS" != "yes" ]; then
-            exit 0
-        fi
-
-        # Send to Coder Island app and wait for answer
-        RESPONSE=$(echo "$INPUT" | curl -s -X POST http://localhost:\(HookServer.port)/ask \\
-            -H "Content-Type: application/json" \\
-            -d @- \\
-            --max-time 300 2>/dev/null)
-
-        if [ $? -eq 0 ] && [ -n "$RESPONSE" ]; then
-            echo "$RESPONSE"
-            exit 0
-        else
-            exit 0
-        fi
+        # Coder Island - AskUserQuestion Hook (launcher)
+        \(Self.appGuard)
+        exec "$_CI_APP/Contents/Helpers/coder-island-hook" ask
+        exit 0
         """
 
-        // Generic event relay: forwards PreToolUse / PostToolUse /
-        // PostToolUseFailure / Stop / StopFailure / UserPromptSubmit payloads
-        // to HookServer /event. These are fire-and-forget from Claude Code's
-        // perspective — we reply with an empty `{}` hookSpecificOutput so
-        // Claude never blocks on us. Short timeout so a crashed app doesn't
-        // slow the user down.
         let eventContent = """
         #!/bin/bash
-        # Coder Island - Lifecycle Event Relay
-        INPUT=$(cat)
-        RESPONSE=$(echo "$INPUT" | curl -s -X POST http://localhost:\(HookServer.port)/event \\
-            -H "Content-Type: application/json" \\
-            -d @- \\
-            --max-time 3 2>/dev/null)
-        if [ $? -eq 0 ] && [ -n "$RESPONSE" ]; then
-            echo "$RESPONSE"
-        fi
+        # Coder Island - Lifecycle Event Relay (launcher)
+        \(Self.appGuard)
+        exec "$_CI_APP/Contents/Helpers/coder-island-hook" event
         exit 0
         """
 
@@ -173,6 +143,7 @@ class HookInstaller {
         let rlCache = HookInstaller.claudeRateLimitsCache.path
         let statusLineContent = """
         #!/bin/bash
+        \(Self.appGuard)
         input=$(cat)
         _rl=$(echo "$input" | python3 -c "
         import sys,json
@@ -217,6 +188,10 @@ class HookInstaller {
         // Save original command for uninstall restore
         try? originalCmd.write(to: chainFile, atomically: true, encoding: .utf8)
 
+        // NOTE: intentionally no appGuard here — the chain-to variant must
+        // always forward stdin to the original statusLine (e.g. vibe-island's)
+        // even if CoderIsland.app is missing. The rate_limits caching is a
+        // harmless no-op when the app is gone.
         let content = """
         #!/bin/bash
         input=$(cat)

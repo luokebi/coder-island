@@ -1,13 +1,16 @@
 import Foundation
-import Network
 
-/// Lightweight HTTP server that receives Claude Code hook requests
-/// and waits for UI responses before replying.
+/// Receives Claude Code hook requests via a Unix-domain socket and
+/// waits for UI responses before replying. The transport is implemented
+/// by HookServerSocket; this class holds the pending-request table and
+/// the business logic for permission / ask / event handling.
+///
+/// Migrated from a localhost:19876 HTTP server in Apr 2026 — see
+/// HookInstaller.swift for the matching shell-launcher side.
 class HookServer {
     static let shared = HookServer()
-    static let port: UInt16 = 19876
 
-    private var listener: NWListener?
+    private var socketServer: HookServerSocket?
     private var pendingRequests = [String: PendingRequest]()
     private let queue = DispatchQueue(label: "com.coderisland.hookserver")
 
@@ -28,67 +31,40 @@ class HookServer {
     private init() {}
 
     func start() {
+        let server = HookServerSocket(queue: queue)
         do {
-            let params = NWParameters.tcp
-            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: HookServer.port)!)
-            listener?.newConnectionHandler = { [weak self] conn in
-                self?.handleConnection(conn)
+            try server.start { [weak self] action, payload, reply in
+                self?.handleRequest(action: action, payloadData: payload, reply: reply)
             }
-            listener?.start(queue: queue)
+            socketServer = server
             startExpirySweeper()
-            debugLog("[HookServer] Started on port \(HookServer.port)")
+            debugLog("[HookServer] Listening on \(HookServerSocket.defaultPath)")
         } catch {
             debugLog("[HookServer] Failed to start: \(error)")
         }
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
+        socketServer?.stop()
+        socketServer = nil
     }
 
-    // MARK: - Handle incoming connections
+    // MARK: - Request dispatch
 
-    private func handleConnection(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, error in
-            guard let self = self, let data = data else {
-                connection.cancel()
-                return
-            }
-
-            let raw = String(data: data, encoding: .utf8) ?? ""
-            debugLog("[HookServer] Received: \(raw.prefix(200))")
-
-            // Parse HTTP request - extract body after \r\n\r\n
-            let body: String
-            if let range = raw.range(of: "\r\n\r\n") {
-                body = String(raw[range.upperBound...])
-            } else {
-                body = raw
-            }
-
-            // Parse the path
-            let path = raw.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-
-            self.handleRequest(path: path, body: body, connection: connection)
-        }
-    }
-
-    private func handleRequest(path: String, body: String, connection: NWConnection) {
-        debugLog("[HookServer] path=\(path) bodyLen=\(body.count)")
-        guard let bodyData = body.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] else {
+    private func handleRequest(action: String, payloadData: Data, reply: @escaping (Data) -> Void) {
+        let body = String(data: payloadData, encoding: .utf8) ?? ""
+        debugLog("[HookServer] action=\(action) bodyLen=\(body.count)")
+        guard let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
             debugLog("[HookServer] JSON parse failed, body: \(body.prefix(200))")
-            sendResponse(connection: connection, statusCode: 400, body: "{\"error\":\"invalid json\"}")
+            reply(Data("{}".utf8))
             return
         }
 
         let requestId = UUID().uuidString
         let sessionId = json["session_id"] as? String ?? json["sessionId"] as? String ?? "unknown"
 
-        switch path {
-        case "/permission":
+        switch action {
+        case "permission":
             // Dump full payload once so we can see what fields Claude Code actually sends.
             HookServer.dumpPayload(path: "/permission", body: body)
 
@@ -145,7 +121,7 @@ class HookServer {
             )
 
             pendingRequests[requestId] = PendingRequest(
-                connection: connection,
+                reply: reply,
                 type: .permission,
                 allowSuggestion: allowSuggestion,
                 originalToolInput: nil,
@@ -156,7 +132,7 @@ class HookServer {
                 self.onPermissionRequest?(request)
             }
 
-        case "/ask":
+        case "ask":
             // Unified ingress log entry — same as /event and /permission.
             HookServer.traceEventIngress(
                 eventName: "AskUserQuestion",
@@ -190,7 +166,7 @@ class HookServer {
             )
 
             pendingRequests[requestId] = PendingRequest(
-                connection: connection,
+                reply: reply,
                 type: .ask,
                 allowSuggestion: nil,
                 originalToolInput: toolInput,
@@ -203,7 +179,7 @@ class HookServer {
                 self.onAskQuestion?(request)
             }
 
-        case "/event":
+        case "event":
             // Generic lifecycle event relay for PreToolUse / PostToolUse /
             // PostToolUseFailure / Stop / StopFailure / UserPromptSubmit.
             // These don't need to wait for a UI decision — respond with an
@@ -225,7 +201,7 @@ class HookServer {
             )
 
             // Respond right away so the shell script / Claude Code unblock.
-            sendResponse(connection: connection, statusCode: 200, body: "{}")
+            reply(Data("{}".utf8))
 
             let sid = sessionId  // captured
             DispatchQueue.main.async {
@@ -235,7 +211,8 @@ class HookServer {
             }
 
         default:
-            sendResponse(connection: connection, statusCode: 404, body: "{\"error\":\"not found\"}")
+            debugLog("[HookServer] unknown action=\(action)")
+            reply(Data("{}".utf8))
         }
     }
 
@@ -252,7 +229,7 @@ class HookServer {
                 decision: decision,
                 suggestion: pending.allowSuggestion
             )
-            self.sendResponse(connection: pending.connection, statusCode: 200, body: body)
+            pending.reply(Data(body.utf8))
         }
     }
 
@@ -316,7 +293,7 @@ class HookServer {
                 originalToolInput: pending.originalToolInput,
                 answer: answer
             )
-            self.sendResponse(connection: pending.connection, statusCode: 200, body: body)
+            pending.reply(Data(body.utf8))
         }
     }
 
@@ -407,21 +384,10 @@ class HookServer {
             // Best-effort: respond with an empty hook output so Claude
             // Code unblocks (it falls back to its default permission /
             // terminal-ask flow). Then drop the entry.
-            sendResponse(connection: pending.connection, statusCode: 200, body: "{}")
+            pending.reply(Data("{}".utf8))
             pendingRequests.removeValue(forKey: id)
             debugLog("[HookServer] Swept expired pending request id=\(id) age>\(Int(HookServer.pendingRequestTTL))s")
         }
-    }
-
-    // MARK: - HTTP response
-
-    private func sendResponse(connection: NWConnection, statusCode: Int, body: String) {
-        let status = statusCode == 200 ? "200 OK" : "\(statusCode) Error"
-        let response = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
-        let data = response.data(using: .utf8)!
-        connection.send(content: data, completion: .contentProcessed { _ in
-            connection.cancel()
-        })
     }
 
     // MARK: - Helpers
@@ -582,7 +548,10 @@ struct AskRequest: Identifiable {
 }
 
 private struct PendingRequest {
-    let connection: NWConnection
+    /// Closure that writes a response body back to the waiting helper
+    /// binary (via the UDS connection) and closes the fd. Fires at most
+    /// once; safe to call from the HookServer queue or the expiry sweeper.
+    let reply: (Data) -> Void
     let type: RequestType
     /// For permission requests, the suggestion payload we received — needed to
     /// build `updatedPermissions` when the user picks "allow and don't ask again".

@@ -36,6 +36,9 @@
 		A100001A0000000000000001 /* UsageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001A0000000000000001; };
 		A100001B0000000000000001 /* CodexOAuthUsageFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001B0000000000000001; };
 		A100001C0000000000000001 /* LoginItemHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001C0000000000000001; };
+		A10000200000000000000001 /* HookServerSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000200000000000000001; };
+		B10000010000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001; };
+		B10000020000000000000001 /* coder-island-hook in Copy Helpers */ = {isa = PBXBuildFile; fileRef = B20000020000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -71,10 +74,34 @@
 		A20000130000000000000002 /* mario_question.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_question.mp3; sourceTree = "<group>"; };
 		A20000140000000000000002 /* mario_complete.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_complete.mp3; sourceTree = "<group>"; };
 		A200001D0000000000000002 /* mario_start.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_start.mp3; sourceTree = "<group>"; };
+		A20000200000000000000001 /* HookServerSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookServerSocket.swift; sourceTree = "<group>"; };
+		B20000010000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B20000020000000000000001 /* coder-island-hook */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "coder-island-hook"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B60000020000000000000001 /* Copy Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "Contents/Helpers";
+			dstSubfolderSpec = 1;
+			files = (
+				B10000020000000000000001 /* coder-island-hook in Copy Helpers */,
+			);
+			name = "Copy Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A30000010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B30000010000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -106,6 +133,7 @@
 				A40000050000000000000001 /* Agents */,
 				A40000070000000000000001 /* Audio */,
 				A40000080000000000000001 /* HookServer */,
+				B40000010000000000000001 /* HookHelper */,
 				A400000A0000000000000001 /* Usage */,
 				A400000B0000000000000001 /* LoginItem */,
 			);
@@ -150,6 +178,7 @@
 			isa = PBXGroup;
 			children = (
 				A200000F0000000000000001 /* Coder Island.app */,
+				B20000020000000000000001 /* coder-island-hook */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -186,6 +215,7 @@
 			isa = PBXGroup;
 			children = (
 				A200000F0000000000000002 /* HookServer.swift */,
+				A20000200000000000000001 /* HookServerSocket.swift */,
 				A20000100000000000000002 /* HookInstaller.swift */,
 			);
 			path = HookServer;
@@ -202,6 +232,14 @@
 			path = sounds;
 			sourceTree = "<group>";
 		};
+		B40000010000000000000001 /* HookHelper */ = {
+			isa = PBXGroup;
+			children = (
+				B20000010000000000000001 /* main.swift */,
+			);
+			path = HookHelper;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -212,15 +250,33 @@
 				A60000010000000000000001 /* Sources */,
 				A30000010000000000000001 /* Frameworks */,
 				A60000020000000000000001 /* Resources */,
+				B60000020000000000000001 /* Copy Helpers */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BA0000010000000000000001 /* PBXTargetDependency */,
 			);
 			name = CoderIsland;
 			productName = CoderIsland;
 			productReference = A200000F0000000000000001 /* Coder Island.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B50000010000000000000001 /* coder-island-hook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B70000010000000000000001 /* Build configuration list for PBXNativeTarget "coder-island-hook" */;
+			buildPhases = (
+				B60000010000000000000001 /* Sources */,
+				B30000010000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "coder-island-hook";
+			productName = "coder-island-hook";
+			productReference = B20000020000000000000001 /* coder-island-hook */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -246,9 +302,28 @@
 			projectRoot = "";
 			targets = (
 				A50000010000000000000001 /* CoderIsland */,
+				B50000010000000000000001 /* coder-island-hook */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXContainerItemProxy section */
+		BB0000010000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A80000010000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B50000010000000000000001;
+			remoteInfo = "coder-island-hook";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		BA0000010000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B50000010000000000000001 /* coder-island-hook */;
+			targetProxy = BB0000010000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A60000020000000000000001 /* Resources */ = {
@@ -292,8 +367,17 @@
 				A100000D0000000000000001 /* CompactBarWindow.swift in Sources */,
 				A100000E0000000000000001 /* CompactBarView.swift in Sources */,
 				A100000F0000000000000001 /* HookServer.swift in Sources */,
+				A10000200000000000000001 /* HookServerSocket.swift in Sources */,
 				A10000100000000000000001 /* HookInstaller.swift in Sources */,
 				A10000110000000000000001 /* PermissionView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B60000010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000010000000000000001 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -392,6 +476,30 @@
 			};
 			name = Release;
 		};
+		B90000010000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = "coder-island-hook";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B90000020000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = "coder-island-hook";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -409,6 +517,15 @@
 			buildConfigurations = (
 				A90000010000000000000001 /* Debug */,
 				A90000020000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B70000010000000000000001 /* Build configuration list for PBXNativeTarget "coder-island-hook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B90000010000000000000001 /* Debug */,
+				B90000020000000000000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
