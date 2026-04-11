@@ -328,9 +328,34 @@ class NotchWindow: NSPanel {
             self.animateWindowResize(expanded: expanded)
         }
 
-        // Also resize when sessions change (e.g. ask card appears/disappears)
+        // Resize when sessions change (add/remove/replace) OR when an
+        // existing AgentSession mutates a layout-affecting field in place
+        // (e.g. Codex JSONL polling populates askQuestion on an already-
+        // shown session, body text changes length, status flips, etc.).
+        //
+        // `agentManager.$sessions` only fires for array-level mutations,
+        // so we additionally merge each session's own `objectWillChange`
+        // publisher. `switchToLatest` throws away the previous merge when
+        // the array changes, so child observers are rebuilt on every
+        // add/remove without leaking subscriptions. The debounce coalesces
+        // burst updates during a single polling pass, and running on the
+        // main queue lets the mutation finish before we re-measure —
+        // `objectWillChange` fires *before* the value is written.
         agentManager.$sessions
-            .receive(on: RunLoop.main)
+            .map { sessions -> AnyPublisher<Void, Never> in
+                let arrayChange = Just(())
+                    .setFailureType(to: Never.self)
+                    .eraseToAnyPublisher()
+                let childChanges = sessions.map { session in
+                    session.objectWillChange
+                        .map { _ in () }
+                        .eraseToAnyPublisher()
+                }
+                return Publishers.MergeMany([arrayChange] + childChanges)
+                    .eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .debounce(for: .milliseconds(16), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self = self, self.viewModel.isExpanded else { return }
                 self.animateWindowResize(expanded: true)
@@ -519,9 +544,15 @@ class NotchWindow: NSPanel {
             viewModel: viewModel,
             agentManager: agentManager
         )
-        let sizingView = NSHostingView(rootView: sizingRoot)
-        sizingView.frame.size.width = width
-        return sizingView.fittingSize.height
+        // Use `NSHostingController.sizeThatFits(in:)` — the Apple-sanctioned
+        // way to measure a SwiftUI subtree's intrinsic height for a given
+        // width. `NSHostingView.fittingSize` returns an unwrapped height
+        // for multi-line `Text` content (wrapping doesn't happen until a
+        // proper layout pass runs), which is why the expanded panel used
+        // to clip ask cards whose question text wrapped to a second line.
+        let controller = NSHostingController(rootView: sizingRoot)
+        let target = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        return controller.sizeThatFits(in: target).height
     }
 
     private func animateWindowResize(expanded: Bool) {
