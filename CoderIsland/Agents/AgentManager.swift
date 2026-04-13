@@ -1034,6 +1034,22 @@ class AgentManager: ObservableObject {
                                 askOptions: options
                             )
                         }
+
+                        if toolName == "ExitPlanMode" {
+                            return decided(
+                                status: .waiting,
+                                subtitle: "Waiting for plan approval...",
+                                reason: "assistant ExitPlanMode — plan awaiting user review"
+                            )
+                        }
+
+                        if toolName == "EnterPlanMode" {
+                            return decided(
+                                status: .waiting,
+                                subtitle: "Entering plan mode...",
+                                reason: "assistant EnterPlanMode — awaiting user consent"
+                            )
+                        }
                         // (Removed: time-based "Awaiting permission" heuristic.
                         // It used to flip any tool_use older than 6s (Bash/Agent)
                         // or 2s (other tools) to .waiting on the assumption that
