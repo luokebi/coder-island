@@ -1,6 +1,8 @@
-# Coder Island
+# <img src="docs/images/claude-icon.png" width="32" height="28" alt=""> Coder Island
 
-A macOS menu bar utility that monitors Claude Code and Codex CLI sessions in real-time. See what your agents are doing, answer their questions, and track usage — all from the notch.
+**A macOS notch bar utility that monitors Claude Code and Codex CLI sessions in real-time.**
+
+See what your agents are doing, answer their questions, and track usage — all from the Dynamic Island-style notch area.
 
 ![Coder Island Expanded Panel](docs/images/1-2.jpg)
 
