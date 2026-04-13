@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/images/app-icon.png" width="128" height="128" alt="Coder Island">
+<img src="docs/images/app-icon.png" width="64" height="64" alt="Coder Island">
 
-## Coder Island
+# Coder Island
 
 **A macOS notch bar utility that monitors Claude Code and Codex CLI sessions in real-time.**
 
