@@ -1,8 +1,14 @@
-# <img src="docs/images/claude-icon.png" width="32" height="28" alt=""> Coder Island
+<div align="center">
+
+<img src="docs/images/claude-icon.png" width="32" height="28" alt="">&nbsp;&nbsp;<img src="docs/images/codex-icon.png" width="28" height="28" alt="">
+
+# Coder Island
 
 **A macOS notch bar utility that monitors Claude Code and Codex CLI sessions in real-time.**
 
 See what your agents are doing, answer their questions, and track usage — all from the Dynamic Island-style notch area.
+
+</div>
 
 ![Coder Island Expanded Panel](docs/images/1-2.jpg)
 
