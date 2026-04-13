@@ -1,17 +1,6 @@
 import SwiftUI
 import AppKit
 
-// Back-compat color blend for macOS 14 (Color.mix is 15+)
-fileprivate func mixColor(_ a: Color, with b: Color, by t: CGFloat) -> Color {
-    let ca = NSColor(a).usingColorSpace(.deviceRGB) ?? .black
-    let cb = NSColor(b).usingColorSpace(.deviceRGB) ?? .black
-    let r = ca.redComponent * (1 - t) + cb.redComponent * t
-    let g = ca.greenComponent * (1 - t) + cb.greenComponent * t
-    let bl = ca.blueComponent * (1 - t) + cb.blueComponent * t
-    let al = ca.alphaComponent * (1 - t) + cb.alphaComponent * t
-    return Color(red: r, green: g, blue: bl, opacity: al)
-}
-
 struct AgentRowView: View {
     @ObservedObject var session: AgentSession
     var hasAskCard: Bool = false
@@ -303,55 +292,37 @@ struct PixelIcon: View {
     }
 }
 
-// MARK: - Claude Code Pixel Character (Claude sparkle/star shape)
+// MARK: - Shared Pixel Character Engine
 
-struct ClaudePixelChar: View {
+/// Shared rendering and animation engine for pixel-art agent characters.
+/// Each agent provides its pixel data, idle color, and bob parameters;
+/// the engine handles Canvas rendering, bob animation, and lifecycle.
+private struct PixelCharEngine: View {
     let isAnimating: Bool
     var colorOverride: Color? = nil
-    @State private var bobOffset: CGFloat = 0
-    @State private var walkFrame = 0
+    let idleColor: Color
+    let gridWidth: CGFloat
+    let bobAmount: CGFloat
+    let bobDuration: Double
+    let pixels: [(Int, Int)]
 
-    // Visible gap between cells → pixel-art grid feel
     private let cell: CGFloat = 2
     private let pix: CGFloat = 1.7
+
+    @State private var bobOffset: CGFloat = 0
 
     private var baseColor: Color {
         if let colorOverride { return colorOverride }
         return isAnimating
             ? Color(red: 0.30, green: 0.50, blue: 0.95)
-            : Color(red: 0.85, green: 0.52, blue: 0.35)
+            : idleColor
     }
-    private var shadowColor: Color { mixColor(baseColor, with: .black, by: 0.45) }
-    private var highlightColor: Color { mixColor(baseColor, with: .white, by: 0.40) }
 
     var body: some View {
         Canvas { context, size in
-            let ox = (size.width - 8 * cell) / 2
+            let ox = (size.width - gridWidth * cell) / 2
             let oy = (size.height - 7 * cell) / 2 + bobOffset
-
-            // Clawd silhouette — identical to original, just shaded.
-            // H = highlight (top), B = base, S = shadow (bottom)
-            // Walking cycle — feet alternate between two stances when active.
-            // Freeze in neutral stance when in waiting/ask state (colorOverride set).
-            let isWalking = isAnimating && colorOverride == nil
-            let feet: [(Int, Int)]
-            if isWalking {
-                feet = (walkFrame % 2 == 0)
-                    ? [(1,6), (5,6)]   // left forward, right back
-                    : [(2,6), (6,6)]   // right forward, left back
-            } else {
-                feet = [(2,6), (5,6)]  // neutral centered stance
-            }
-
-            let allPixels: [(Int, Int)] = [
-                (1,1),(2,1),(3,1),(4,1),(5,1),(6,1),        // head top
-                (1,2),      (3,2),(4,2),      (6,2),        // eyes gap
-                (0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),
-                      (1,4),(2,4),(3,4),(4,4),(5,4),(6,4),
-                      (1,5),(2,5),(3,5),(4,5),(5,5),(6,5),
-            ] + feet
-
-            for (x, y) in allPixels {
+            for (x, y) in pixels {
                 let rect = CGRect(
                     x: ox + CGFloat(x) * cell,
                     y: oy + CGFloat(y) * cell,
@@ -363,26 +334,71 @@ struct ClaudePixelChar: View {
         .frame(width: 16, height: 16)
         .shadow(color: baseColor.opacity(0.9), radius: 2)
         .shadow(color: baseColor.opacity(0.6), radius: 4)
-        .onAppear { startAnimations() }
-        .onChange(of: isAnimating) { _, _ in startAnimations() }
-        .onChange(of: colorOverride) { _, _ in startAnimations() }
+        .onAppear { updateBob() }
+        .onChange(of: isAnimating) { _, _ in updateBob() }
+        .onChange(of: colorOverride) { _, _ in updateBob() }
     }
 
-    private func startAnimations() {
+    private func updateBob() {
         guard isAnimating else {
             withAnimation(.easeOut(duration: 0.3)) { bobOffset = 0 }
+            return
+        }
+        withAnimation(.easeInOut(duration: bobDuration).repeatForever(autoreverses: true)) {
+            bobOffset = bobAmount
+        }
+    }
+}
+
+// MARK: - Claude Code Pixel Character (Claude sparkle/star shape)
+
+struct ClaudePixelChar: View {
+    let isAnimating: Bool
+    var colorOverride: Color? = nil
+    @State private var walkFrame = 0
+
+    private static let bodyPixels: [(Int, Int)] = [
+        (1,1),(2,1),(3,1),(4,1),(5,1),(6,1),
+        (1,2),      (3,2),(4,2),      (6,2),
+        (0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),
+              (1,4),(2,4),(3,4),(4,4),(5,4),(6,4),
+              (1,5),(2,5),(3,5),(4,5),(5,5),(6,5),
+    ]
+
+    private var allPixels: [(Int, Int)] {
+        let isWalking = isAnimating && colorOverride == nil
+        let feet: [(Int, Int)]
+        if isWalking {
+            feet = (walkFrame % 2 == 0)
+                ? [(1,6), (5,6)]
+                : [(2,6), (6,6)]
+        } else {
+            feet = [(2,6), (5,6)]
+        }
+        return Self.bodyPixels + feet
+    }
+
+    var body: some View {
+        PixelCharEngine(
+            isAnimating: isAnimating,
+            colorOverride: colorOverride,
+            idleColor: Color(red: 0.85, green: 0.52, blue: 0.35),
+            gridWidth: 8,
+            bobAmount: -1.0,
+            bobDuration: 0.25,
+            pixels: allPixels
+        )
+        .onAppear { startWalk() }
+        .onChange(of: isAnimating) { _, _ in startWalk() }
+        .onChange(of: colorOverride) { _, _ in startWalk() }
+    }
+
+    private func startWalk() {
+        guard isAnimating, colorOverride == nil else {
             walkFrame = 0
             return
         }
-        withAnimation(.easeInOut(duration: 0.25).repeatForever(autoreverses: true)) {
-            bobOffset = -1.0
-        }
-        // Only walk when not in waiting/ask state
-        if colorOverride == nil {
-            walkLoop()
-        } else {
-            walkFrame = 0
-        }
+        walkLoop()
     }
 
     private func walkLoop() {
@@ -440,60 +456,43 @@ private struct ThinkingDot: View {
 struct CodexPixelChar: View {
     let isAnimating: Bool
     var colorOverride: Color? = nil
-    @State private var bobOffset: CGFloat = 0
     @State private var cursorVisible = true
 
-    private let cell: CGFloat = 2
-    private let pix: CGFloat = 1.7
+    private static let chevronPixels: [(Int, Int)] = [
+        (0,1),
+        (1,2),
+        (2,3),
+        (1,4),
+        (0,5),
+    ]
+    private static let cursorPixels: [(Int, Int)] = [(4,5),(5,5),(6,5)]
 
-    private var baseColor: Color {
-        if let colorOverride { return colorOverride }
-        return isAnimating
-            ? Color(red: 0.30, green: 0.50, blue: 0.95)
-            : Color(red: 0.25, green: 0.65, blue: 0.38)
+    private var allPixels: [(Int, Int)] {
+        var px = Self.chevronPixels
+        if !isAnimating || cursorVisible {
+            px.append(contentsOf: Self.cursorPixels)
+        }
+        return px
     }
-    private var shadowColor: Color { mixColor(baseColor, with: .black, by: 0.45) }
-    private var highlightColor: Color { mixColor(baseColor, with: .white, by: 0.40) }
 
     var body: some View {
-        Canvas { context, size in
-            let ox = (size.width - 7 * cell) / 2
-            let oy = (size.height - 7 * cell) / 2 + bobOffset
-
-            var pixels: [(Int, Int)] = [
-                (0,1),
-                (1,2),
-                (2,3),
-                (1,4),
-                (0,5),
-            ]
-            if !isAnimating || cursorVisible {
-                pixels.append(contentsOf: [(4,5),(5,5),(6,5)])
-            }
-            for (x, y) in pixels {
-                let rect = CGRect(
-                    x: ox + CGFloat(x) * cell,
-                    y: oy + CGFloat(y) * cell,
-                    width: pix, height: pix
-                )
-                context.fill(Path(rect), with: .color(baseColor))
-            }
-        }
-        .frame(width: 16, height: 16)
-        .shadow(color: baseColor.opacity(0.9), radius: 2)
-        .shadow(color: baseColor.opacity(0.6), radius: 4)
-        .onAppear { startAnimations() }
-        .onChange(of: isAnimating) { _, _ in startAnimations() }
+        PixelCharEngine(
+            isAnimating: isAnimating,
+            colorOverride: colorOverride,
+            idleColor: Color(red: 0.25, green: 0.65, blue: 0.38),
+            gridWidth: 7,
+            bobAmount: -1.5,
+            bobDuration: 0.5,
+            pixels: allPixels
+        )
+        .onAppear { startBlink() }
+        .onChange(of: isAnimating) { _, _ in startBlink() }
     }
 
-    private func startAnimations() {
+    private func startBlink() {
         guard isAnimating else {
-            withAnimation(.easeOut(duration: 0.3)) { bobOffset = 0 }
             cursorVisible = true
             return
-        }
-        withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-            bobOffset = -1.5
         }
         blinkLoop()
     }
