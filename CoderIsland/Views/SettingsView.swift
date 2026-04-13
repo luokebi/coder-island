@@ -16,6 +16,7 @@ struct SettingsView: View {
     @AppStorage("smartSuppression") private var smartSuppression = true
     @AppStorage("showUsageLimits") private var showUsageLimits = true
     @AppStorage("hideInFullscreen") private var hideInFullscreen = false
+    @AppStorage("showUsageInline") private var showUsageInline = true
     @AppStorage("preferredDisplayID") private var preferredDisplayID = 0
     @State private var displayChoices: [(id: Int, label: String)] = []
     @State private var accessibilityGranted = AXIsProcessTrusted()
@@ -188,6 +189,13 @@ struct SettingsView: View {
                             subtitle: "Display subscription usage limits in the notch panel header"
                         ) {
                             rightSwitch($showUsageLimits)
+                        }
+                        rowDivider
+                        settingsRow(
+                            title: "Detailed usage display",
+                            subtitle: "Show 5h and weekly percentages next to icons, otherwise icons only"
+                        ) {
+                            rightSwitch($showUsageInline)
                         }
                         rowDivider
                         settingsRow(

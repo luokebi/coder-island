@@ -305,11 +305,13 @@ private struct PixelCharEngine: View {
     let bobAmount: CGFloat
     let bobDuration: Double
     let pixels: [(Int, Int)]
+    var showGlow: Bool = true
 
     private let cell: CGFloat = 2
     private let pix: CGFloat = 1.7
 
     @State private var bobOffset: CGFloat = 0
+    @State private var bobId = UUID()
 
     private var baseColor: Color {
         if let colorOverride { return colorOverride }
@@ -332,18 +334,26 @@ private struct PixelCharEngine: View {
             }
         }
         .frame(width: 16, height: 16)
-        .shadow(color: baseColor.opacity(0.9), radius: 2)
-        .shadow(color: baseColor.opacity(0.6), radius: 4)
+        .shadow(color: showGlow ? baseColor.opacity(0.9) : .clear, radius: 2)
+        .shadow(color: showGlow ? baseColor.opacity(0.6) : .clear, radius: 4)
+        // Reset the animation identity when state changes so
+        // repeatForever doesn't stack on top of a previous one.
+        .id(bobId)
         .onAppear { updateBob() }
         .onChange(of: isAnimating) { _, _ in updateBob() }
         .onChange(of: colorOverride) { _, _ in updateBob() }
     }
 
     private func updateBob() {
+        // Changing bobId forces SwiftUI to tear down and recreate the
+        // view's animation state, preventing repeatForever from stacking.
+        bobId = UUID()
         guard isAnimating else {
-            withAnimation(.easeOut(duration: 0.3)) { bobOffset = 0 }
+            bobOffset = 0
             return
         }
+        // Start from 0 then animate to target
+        bobOffset = 0
         withAnimation(.easeInOut(duration: bobDuration).repeatForever(autoreverses: true)) {
             bobOffset = bobAmount
         }
@@ -355,7 +365,9 @@ private struct PixelCharEngine: View {
 struct ClaudePixelChar: View {
     let isAnimating: Bool
     var colorOverride: Color? = nil
+    var showGlow: Bool = true
     @State private var walkFrame = 0
+    @State private var walkGeneration = 0
 
     private static let bodyPixels: [(Int, Int)] = [
         (1,1),(2,1),(3,1),(4,1),(5,1),(6,1),
@@ -386,7 +398,8 @@ struct ClaudePixelChar: View {
             gridWidth: 8,
             bobAmount: -1.0,
             bobDuration: 0.25,
-            pixels: allPixels
+            pixels: allPixels,
+            showGlow: showGlow
         )
         .onAppear { startWalk() }
         .onChange(of: isAnimating) { _, _ in startWalk() }
@@ -394,19 +407,20 @@ struct ClaudePixelChar: View {
     }
 
     private func startWalk() {
+        walkGeneration += 1
         guard isAnimating, colorOverride == nil else {
             walkFrame = 0
             return
         }
-        walkLoop()
+        walkLoop(generation: walkGeneration)
     }
 
-    private func walkLoop() {
-        guard isAnimating, colorOverride == nil else { return }
+    private func walkLoop(generation: Int) {
+        guard isAnimating, colorOverride == nil, generation == walkGeneration else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            guard self.isAnimating, self.colorOverride == nil else { return }
+            guard self.isAnimating, self.colorOverride == nil, generation == self.walkGeneration else { return }
             self.walkFrame += 1
-            self.walkLoop()
+            self.walkLoop(generation: generation)
         }
     }
 }
@@ -456,7 +470,9 @@ private struct ThinkingDot: View {
 struct CodexPixelChar: View {
     let isAnimating: Bool
     var colorOverride: Color? = nil
+    var showGlow: Bool = true
     @State private var cursorVisible = true
+    @State private var blinkGeneration = 0
 
     private static let chevronPixels: [(Int, Int)] = [
         (0,1),
@@ -483,26 +499,28 @@ struct CodexPixelChar: View {
             gridWidth: 7,
             bobAmount: -1.5,
             bobDuration: 0.5,
-            pixels: allPixels
+            pixels: allPixels,
+            showGlow: showGlow
         )
         .onAppear { startBlink() }
         .onChange(of: isAnimating) { _, _ in startBlink() }
     }
 
     private func startBlink() {
+        blinkGeneration += 1
         guard isAnimating else {
             cursorVisible = true
             return
         }
-        blinkLoop()
+        blinkLoop(generation: blinkGeneration)
     }
 
-    private func blinkLoop() {
-        guard isAnimating else { return }
+    private func blinkLoop(generation: Int) {
+        guard isAnimating, generation == blinkGeneration else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            guard self.isAnimating else { return }
+            guard self.isAnimating, generation == self.blinkGeneration else { return }
             self.cursorVisible.toggle()
-            self.blinkLoop()
+            self.blinkLoop(generation: generation)
         }
     }
 }

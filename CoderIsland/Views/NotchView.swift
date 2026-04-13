@@ -20,7 +20,7 @@ struct IslandView: View {
     private let barColor = Color.black
     private let usagePopoverShowDelay: TimeInterval = 0.15
     private let usageButtonSize = CGSize(width: 26, height: 22)
-    private let usageButtonSpacing: CGFloat = 6
+    private let usageButtonSpacing: CGFloat = 12
     private let usageOverlayTopInset: CGFloat = 6
     private let usageOverlayLeadingInset: CGFloat = 12
     private let usagePopoverTopGap: CGFloat = 6
@@ -432,6 +432,7 @@ struct IslandView: View {
     // MARK: - Usage Buttons (top-left of expanded panel)
 
     @AppStorage("showUsageLimits") private var showUsageLimits = true
+    @AppStorage("showUsageInline") private var showUsageInline = true
 
     @ViewBuilder
     private var usageButtonsOverlay: some View {
@@ -448,9 +449,10 @@ struct IslandView: View {
         let usage = aggregatedUsage(for: type)
         let isHovering = hoveredUsageButton == type
         let isAvailable = usage != nil
-        ZStack {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(isHovering ? Color.white.opacity(0.20) : Color.clear)
+        let primary: Int? = usage?.primaryPercentUsed.map { max(0, 100 - Int($0.rounded())) }
+        let secondary: Int? = usage?.secondaryPercentUsed.map { max(0, 100 - Int($0.rounded())) }
+
+        HStack(spacing: 4) {
             Group {
                 switch type {
                 case .claudeCode:
@@ -461,8 +463,28 @@ struct IslandView: View {
             }
             .scaleEffect(0.9)
             .opacity(isAvailable ? 1.0 : 0.35)
+
+            if isAvailable && showUsageInline {
+                VStack(alignment: .leading, spacing: 1) {
+                    if let p5h = primary {
+                        Text("5h \(p5h)%")
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    if let pW = secondary {
+                        Text(" W \(pW)%")
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.35))
+                    }
+                }
+            }
         }
-        .frame(width: usageButtonSize.width, height: usageButtonSize.height)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(isHovering ? Color.white.opacity(0.15) : Color.clear)
+        )
         .contentShape(RoundedRectangle(cornerRadius: 7))
         .onHover { hovering in
             handleUsageHover(type: type, hovering: hovering, source: .icon)
