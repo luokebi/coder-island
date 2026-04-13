@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Coder Island — AI Agent Monitor for macOS</title>
 <meta name="description" content="A macOS menu bar utility that monitors Claude Code and Codex CLI sessions in real-time. Permission routing, usage tracking, pixel-art characters.">
+<link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <style>
@@ -204,7 +205,7 @@ footer a{color:var(--dim)}footer a:hover{color:var(--text)}
 
 <nav>
   <div class="logo">
-    <canvas id="nav-icon" width="16" height="14"></canvas>
+    <img src="images/app-icon.png" width="24" height="24" alt="" style="border-radius:6px">
     Coder Island
   </div>
   <div class="links">
@@ -363,9 +364,6 @@ function px(id,pixels,color,cell){
 }
 const CP=[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[1,2],[3,2],[4,2],[6,2],[0,3],[1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[1,5],[2,5],[3,5],[4,5],[5,5],[6,5],[2,6],[5,6]];
 const XP=[[0,1],[1,2],[2,3],[1,4],[0,5],[4,5],[5,5],[6,5]];
-
-// Nav icon
-px('nav-icon',CP,'#d9854a',2);
 
 // Hero characters — state cycling with badge indicators
 const CELL=5;
