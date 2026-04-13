@@ -210,7 +210,9 @@ struct AgentRowView: View {
             return nil
         }()
 
-        if let parts {
+        if subtitle == "Thinking..." {
+            ThinkingLabel()
+        } else if let parts {
             HStack(spacing: 4) {
                 Text(parts.tool)
                     .font(.system(size: 11, weight: .bold))
@@ -390,6 +392,46 @@ struct ClaudePixelChar: View {
             self.walkFrame += 1
             self.walkLoop()
         }
+    }
+}
+
+// MARK: - Thinking Label (pulsing dots animation)
+
+struct ThinkingLabel: View {
+    @State private var dotCount = 0
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text("Thinking")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.purple.opacity(0.9))
+            HStack(spacing: 2) {
+                ForEach(0..<3, id: \.self) { i in
+                    ThinkingDot(index: i)
+                }
+            }
+        }
+    }
+}
+
+private struct ThinkingDot: View {
+    let index: Int
+    @State private var opacity: Double = 0.3
+
+    var body: some View {
+        Circle()
+            .fill(Color.purple)
+            .frame(width: 4, height: 4)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 0.6)
+                    .repeatForever(autoreverses: true)
+                    .delay(Double(index) * 0.2)
+                ) {
+                    opacity = 1.0
+                }
+            }
     }
 }
 
