@@ -133,6 +133,27 @@ nav .links a{color:var(--dim);transition:color 0.2s}nav .links a:hover{color:var
 .feature-card h3{font-size:14px;font-weight:700;margin-bottom:8px;letter-spacing:.3px}
 .feature-card p{font-size:12px;color:var(--dim);line-height:1.7}
 
+/* ============ SETTINGS ============ */
+.settings-section{padding:100px 0;border-top:1px solid var(--border)}
+.settings-list{
+  display:grid;grid-template-columns:1fr 1fr;gap:0;
+  border:1px solid var(--border);border-radius:16px;overflow:hidden;
+}
+.setting-item{
+  padding:24px 28px;
+  border-bottom:1px solid var(--border);
+  border-right:1px solid var(--border);
+  transition:background .2s;
+}
+.setting-item:hover{background:rgba(255,255,255,0.02)}
+.setting-item:nth-child(2n){border-right:none}
+.setting-item:nth-last-child(-n+2){border-bottom:none}
+.setting-key{
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;
+  color:var(--claude);margin-bottom:8px;
+}
+.setting-val{font-size:12px;color:var(--dim);line-height:1.7}
+
 /* ============ HOW IT WORKS ============ */
 .how-it-works{padding:100px 0;border-top:1px solid var(--border)}
 .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:48px;margin-top:64px}
@@ -168,6 +189,8 @@ footer a{color:var(--dim)}footer a:hover{color:var(--text)}
   .features-grid{grid-template-columns:1fr}
   .feature-card{border-radius:0!important}.feature-card:first-child{border-radius:16px 16px 0 0!important}.feature-card:last-child{border-radius:0 0 16px 16px!important}
   .steps{grid-template-columns:1fr;gap:32px}.step-connector{display:none}
+  .settings-list{grid-template-columns:1fr}
+  .setting-item{border-right:none!important}
   .hero-actions{flex-direction:column}
   .tech-strip{gap:24px;padding:32px 24px}
   nav .links{display:none}
@@ -209,7 +232,7 @@ footer a{color:var(--dim)}footer a:hover{color:var(--text)}
   </div>
   <p class="subtitle">A macOS menu bar utility that monitors Claude Code and Codex CLI sessions in real-time. See what your agents are doing, answer their questions, and track usage &mdash; all from the notch.</p>
   <div class="hero-actions">
-    <a href="https://github.com/luokebi/coder-island/releases" class="btn-primary">Download .dmg</a>
+    <a href="https://github.com/luokebi/coder-island/releases" class="btn-primary">Download</a>
     <a href="https://github.com/luokebi/coder-island" class="btn-secondary">View Source</a>
   </div>
 
@@ -268,18 +291,36 @@ footer a{color:var(--dim)}footer a:hover{color:var(--text)}
 </section>
 
 <!-- SETTINGS -->
-<section class="features container" id="settings">
+<section class="settings-section container" id="settings">
   <div class="reveal">
     <div class="section-label">Settings</div>
     <div class="section-title">Fully configurable<br>to your workflow</div>
   </div>
-  <div class="features-grid reveal">
-    <div class="feature-card"><span class="feature-icon">&#9881;</span><h3>Hook Integration</h3><p>Enable "Answer questions &amp; permissions" to install hook scripts. Permission prompts and questions appear in the app instead of blocking the terminal.</p></div>
-    <div class="feature-card"><span class="feature-icon">&#128264;</span><h3>Smart Suppression</h3><p>Don't auto-expand the panel when the agent's terminal is already in focus. Prevents the notch from popping out on top of what you're already looking at.</p></div>
-    <div class="feature-card"><span class="feature-icon">&#9835;</span><h3>Sound Presets</h3><p>Choose from Mario, Pop, or Chime presets. Toggle sounds per-event (permissions, questions, completions, app start) or import your own audio files.</p></div>
-    <div class="feature-card"><span class="feature-icon">&#128200;</span><h3>Inline Usage</h3><p>Show 5-hour and weekly rate limit percentages directly next to agent icons. Hover for detailed reset times. Toggle between compact and detailed display.</p></div>
-    <div class="feature-card"><span class="feature-icon">&#9654;</span><h3>Launch at Login</h3><p>Start automatically after login. Grant Accessibility permission once for terminal tab switching and foreground app detection.</p></div>
-    <div class="feature-card"><span class="feature-icon">&#128421;</span><h3>Multi-Display</h3><p>Choose which screen the notch panel lives on. Auto-hide when any app enters fullscreen mode. Works across all Spaces.</p></div>
+  <div class="settings-list reveal">
+    <div class="setting-item">
+      <div class="setting-key">Hook Integration</div>
+      <div class="setting-val">Install lightweight hook scripts so permission prompts and questions appear in the app instead of blocking the terminal. Toggle on in Settings &rarr; Interaction.</div>
+    </div>
+    <div class="setting-item">
+      <div class="setting-key">Smart Suppression</div>
+      <div class="setting-val">Don't auto-expand the panel when the agent's terminal is already in focus. Prevents the notch from interrupting what you're looking at.</div>
+    </div>
+    <div class="setting-item">
+      <div class="setting-key">Sound Presets</div>
+      <div class="setting-val">Mario, Pop, or Chime built-in profiles. Toggle per-event (permissions, questions, completions, app start) or import your own audio files.</div>
+    </div>
+    <div class="setting-item">
+      <div class="setting-key">Usage Display</div>
+      <div class="setting-val">Show 5-hour and weekly rate limit percentages inline next to agent icons. Hover for reset times. Switch between compact and detailed modes.</div>
+    </div>
+    <div class="setting-item">
+      <div class="setting-key">Launch at Login</div>
+      <div class="setting-val">Start automatically after login. Grant Accessibility permission once for terminal tab switching and foreground app detection.</div>
+    </div>
+    <div class="setting-item">
+      <div class="setting-key">Multi-Display</div>
+      <div class="setting-val">Choose which screen the notch lives on. Auto-hide in fullscreen mode. Works across all Spaces.</div>
+    </div>
   </div>
 </section>
 
