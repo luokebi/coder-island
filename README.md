@@ -49,6 +49,31 @@ xcodebuild -project CoderIsland.xcodeproj -scheme CoderIsland -configuration Deb
 ./scripts/package-dmg.sh
 ```
 
+## Settings
+
+### Agent Monitoring
+- **Claude Code** / **OpenAI Codex CLI** — Toggle which agents to monitor
+
+### Interaction
+- **Answer questions & permissions in Coder Island** — Installs hook scripts so permission prompts and questions appear in the app's UI instead of blocking the terminal. Requires restarting active Claude Code sessions after enabling.
+
+### Sound
+- **Sound effects** — Toggle audio notifications on/off
+- **Sound preset** — Choose from Mario, Pop, or Chime built-in sound profiles
+- **Per-event toggles** — Enable/disable sounds individually for permission requests, questions, task completions, and app start
+- **Custom sounds** — Import your own audio files for any event
+
+### System
+- **Launch at login** — Start Coder Island automatically after login
+- **Display** — Choose which screen the notch panel lives on (automatic or manual)
+- **Accessibility** — Required for terminal tab switching and foreground app detection. Grant access when prompted.
+
+### Behaviour
+- **Smart suppression** — Don't auto-expand the panel when the agent's terminal window is already in focus. Prevents the notch from popping out on top of what you're already looking at.
+- **Show usage limits** — Display Claude/Codex usage icons in the expanded panel header
+- **Detailed usage display** — Show 5-hour and weekly remaining percentages inline next to the agent icons, not just on hover
+- **Hide in fullscreen** — Automatically hide Coder Island when any app enters fullscreen mode
+
 ## How It Works
 
 Coder Island discovers sessions by scanning `~/.claude/sessions/` and `~/.codex/sessions/`. When hooks are enabled, it installs lightweight shell scripts that relay Claude Code events to the app via a Unix domain socket — zero latency.
