@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coder Island — AI Agent Monitor for macOS</title>
+<meta name="description" content="A macOS menu bar utility that monitors Claude Code and Codex CLI sessions in real-time. Permission routing, usage tracking, pixel-art characters.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root {
+  --bg: #0a0a0c;
+  --surface: #111114;
+  --border: #1e1e24;
+  --text: #e8e6e3;
+  --dim: #6b6b78;
+  --claude: #d9854a;
+  --codex: #40a862;
+  --blue: #4d80f3;
+  --teal: #00bfbf;
+  --orange: #e8993e;
+  --mono: 'JetBrains Mono', monospace;
+  --serif: 'Instrument Serif', Georgia, serif;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:14px;line-height:1.7;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");pointer-events:none;z-index:9999}
+a{color:var(--teal);text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:1080px;margin:0 auto;padding:0 32px}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:16px 32px;display:flex;align-items:center;justify-content:space-between;background:rgba(10,10,12,0.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+nav .logo{display:flex;align-items:center;gap:12px;font-weight:700;font-size:13px;letter-spacing:0.5px;text-transform:uppercase}
+nav .links{display:flex;gap:24px;font-size:12px}
+nav .links a{color:var(--dim);transition:color 0.2s}nav .links a:hover{color:var(--text);text-decoration:none}
+
+/* HERO */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:120px 32px 60px;position:relative}
+.hero::before{content:'';position:absolute;top:15%;left:50%;transform:translateX(-50%);width:700px;height:700px;background:radial-gradient(circle,rgba(77,128,243,0.06) 0%,transparent 70%);pointer-events:none}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border:1px solid var(--border);border-radius:100px;font-size:11px;color:var(--dim);margin-bottom:40px;animation:fadeUp .8s ease-out both}
+.hero-badge .dot{width:6px;height:6px;background:var(--codex);border-radius:50%;animation:pulse 2s ease-in-out infinite}
+.hero-title-wrap{
+  position:relative;
+  animation:fadeUp .8s ease-out .1s both;
+}
+.hero h1{font-family:var(--serif);font-size:clamp(48px,8vw,96px);font-weight:400;line-height:1.05;letter-spacing:-1px;margin-bottom:0}
+.hero h1 em{font-style:italic;color:var(--claude)}
+.hero-sticker{
+  position:absolute;
+  z-index:2;
+}
+.hero-sticker canvas{image-rendering:pixelated}
+.sticker-claude{
+  top:-8px;left:-56px;
+  animation:stickerFloat1 2.5s ease-in-out infinite alternate;
+  transform:rotate(-8deg);
+}
+.sticker-codex{
+  bottom:-4px;right:-50px;
+  animation:stickerFloat2 3s ease-in-out infinite alternate;
+  transform:rotate(6deg);
+}
+.sticker-badge{
+  position:absolute;
+  top:-12px;right:-14px;
+}
+@keyframes stickerFloat1{
+  0%{transform:rotate(-8deg) translateY(0)}
+  100%{transform:rotate(-5deg) translateY(-8px)}
+}
+@keyframes stickerFloat2{
+  0%{transform:rotate(6deg) translateY(0)}
+  100%{transform:rotate(9deg) translateY(-6px)}
+}
+.hero .subtitle{font-size:15px;color:var(--dim);max-width:520px;margin:24px auto 48px;line-height:1.8;animation:fadeUp .8s ease-out .2s both}
+.hero-actions{display:flex;gap:16px;align-items:center;animation:fadeUp .8s ease-out .3s both}
+.btn-primary{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:var(--text);color:var(--bg);font-family:var(--mono);font-size:13px;font-weight:700;border:none;border-radius:8px;cursor:pointer;transition:transform .15s,box-shadow .15s;text-decoration:none}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(232,230,227,0.1);text-decoration:none;color:var(--bg)}
+.btn-secondary{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:transparent;color:var(--dim);font-family:var(--mono);font-size:13px;font-weight:500;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .2s;text-decoration:none}
+.btn-secondary:hover{border-color:var(--dim);color:var(--text);text-decoration:none}
+
+/* ============ APP MOCKUPS ============ */
+.mockup-showcase{
+  padding:40px 0 100px;
+  animation:fadeUp .8s ease-out .4s both;
+}
+.mockup-tabs{
+  display:flex;justify-content:center;gap:4px;margin-bottom:32px;
+}
+.mockup-tab{
+  font-size:11px;padding:6px 16px;border-radius:6px;cursor:pointer;
+  color:var(--dim);background:transparent;border:1px solid transparent;
+  font-family:var(--mono);transition:all .2s;
+}
+.mockup-tab.active{color:var(--text);background:var(--surface);border-color:var(--border)}
+.mockup-tab:hover:not(.active){color:var(--text)}
+
+.mockup-viewport{
+  max-width:800px;margin:0 auto;position:relative;
+  min-height:340px;
+}
+.mockup-img{
+  width:100%;border-radius:12px;
+  box-shadow:0 24px 64px rgba(0,0,0,0.5);
+  image-rendering:auto;
+  -webkit-image-rendering:auto;
+}
+.mockup-frame{
+  position:absolute;inset:0;
+  opacity:0;transform:translateY(8px) scale(0.98);
+  transition:opacity .4s ease,transform .4s ease;
+  pointer-events:none;
+}
+.mockup-frame.active{
+  opacity:1;transform:translateY(0) scale(1);
+  pointer-events:auto;position:relative;
+}
+
+
+/* ============ FEATURES ============ */
+.features{padding:100px 0}
+.section-label{font-size:10px;text-transform:uppercase;letter-spacing:3px;color:var(--dim);margin-bottom:16px}
+.section-title{font-family:var(--serif);font-size:clamp(32px,5vw,52px);font-weight:400;line-height:1.15;margin-bottom:64px}
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.feature-card{background:var(--surface);padding:36px 28px;border:1px solid var(--border);transition:all .3s;position:relative;overflow:hidden}
+.feature-card:first-child{border-radius:16px 0 0 0}.feature-card:nth-child(3){border-radius:0 16px 0 0}
+.feature-card:nth-child(4){border-radius:0 0 0 16px}.feature-card:last-child{border-radius:0 0 16px 0}
+.feature-card:hover{background:#151518;border-color:#2a2a32}
+.feature-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--blue),transparent);opacity:0;transition:opacity .3s}
+.feature-card:hover::before{opacity:1}
+.feature-icon{font-size:20px;margin-bottom:16px;display:block;width:40px;height:40px;line-height:40px;text-align:center;background:rgba(77,128,243,0.08);border-radius:10px;border:1px solid rgba(77,128,243,0.12)}
+.feature-card h3{font-size:14px;font-weight:700;margin-bottom:8px;letter-spacing:.3px}
+.feature-card p{font-size:12px;color:var(--dim);line-height:1.7}
+
+/* ============ HOW IT WORKS ============ */
+.how-it-works{padding:100px 0;border-top:1px solid var(--border)}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:48px;margin-top:64px}
+.step{position:relative}
+.step-num{font-family:var(--serif);font-size:64px;font-style:italic;color:var(--border);line-height:1;margin-bottom:16px}
+.step h3{font-size:15px;font-weight:700;margin-bottom:8px}
+.step p{font-size:12px;color:var(--dim);line-height:1.8}
+.step-connector{position:absolute;top:32px;right:-28px;color:var(--border);font-size:18px}
+
+/* ============ TECH STRIP ============ */
+.tech-strip{padding:48px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;justify-content:center;gap:48px;flex-wrap:wrap}
+.tech-item{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:8px}
+.tech-item .td{width:4px;height:4px;background:var(--dim);border-radius:50%}
+
+/* ============ CTA ============ */
+.cta{padding:120px 0;text-align:center}
+.cta h2{font-family:var(--serif);font-size:clamp(36px,5vw,56px);font-weight:400;line-height:1.15;margin-bottom:16px}
+.cta p{color:var(--dim);font-size:14px;margin-bottom:40px}
+.cta .sys{font-size:11px;color:var(--dim);margin-top:16px;opacity:.6}
+
+/* ============ FOOTER ============ */
+footer{padding:32px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--dim)}
+footer a{color:var(--dim)}footer a:hover{color:var(--text)}
+
+/* ============ ANIMATIONS ============ */
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .6s ease-out,transform .6s ease-out}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+/* ============ RESPONSIVE ============ */
+@media(max-width:768px){
+  .features-grid{grid-template-columns:1fr}
+  .feature-card{border-radius:0!important}.feature-card:first-child{border-radius:16px 16px 0 0!important}.feature-card:last-child{border-radius:0 0 16px 16px!important}
+  .steps{grid-template-columns:1fr;gap:32px}.step-connector{display:none}
+  .hero-actions{flex-direction:column}
+  .tech-strip{gap:24px;padding:32px 24px}
+  nav .links{display:none}
+  .hero-sticker{display:none}
+  .mockup-viewport{max-width:100%}
+  .mock-compact{max-width:100%}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">
+    <canvas id="nav-icon" width="16" height="14"></canvas>
+    Coder Island
+  </div>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="https://github.com/luokebi/coder-island">GitHub</a>
+    <a href="https://github.com/luokebi/coder-island/releases">Download</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge"><span class="dot"></span> macOS 14+ &middot; Swift &middot; Open Source</div>
+  <div class="hero-title-wrap">
+    <div class="hero-sticker sticker-claude">
+      <canvas id="hero-claude" width="40" height="35"></canvas>
+      <canvas id="claude-badge" width="16" height="16" class="sticker-badge"></canvas>
+    </div>
+    <div class="hero-sticker sticker-codex">
+      <canvas id="hero-codex" width="35" height="35"></canvas>
+      <canvas id="codex-badge" width="16" height="16" class="sticker-badge"></canvas>
+    </div>
+    <h1>Your AI agents,<br><em>one island</em></h1>
+  </div>
+  <p class="subtitle">A macOS menu bar utility that monitors Claude Code and Codex CLI sessions in real-time. See what your agents are doing, answer their questions, and track usage &mdash; all from the notch.</p>
+  <div class="hero-actions">
+    <a href="https://github.com/luokebi/coder-island/releases" class="btn-primary">Download .dmg</a>
+    <a href="https://github.com/luokebi/coder-island" class="btn-secondary">View Source</a>
+  </div>
+
+  <!-- APP MOCKUPS -->
+  <div class="mockup-showcase">
+    <div class="mockup-tabs">
+      <div class="mockup-tab active" data-tab="compact">Compact</div>
+      <div class="mockup-tab" data-tab="expanded">Expanded</div>
+      <div class="mockup-tab" data-tab="permission">Permission</div>
+      <div class="mockup-tab" data-tab="ask">Ask</div>
+    </div>
+    <div class="mockup-viewport">
+      <div class="mockup-frame active" id="mock-compact">
+        <img src="images/1-1.jpg" alt="Coder Island compact bar in macOS notch" class="mockup-img">
+      </div>
+      <div class="mockup-frame" id="mock-expanded">
+        <img src="images/1-2.jpg" alt="Coder Island expanded panel showing sessions" class="mockup-img">
+      </div>
+      <div class="mockup-frame" id="mock-permission">
+        <img src="images/1-4.jpg" alt="Coder Island permission request card" class="mockup-img">
+      </div>
+      <div class="mockup-frame" id="mock-ask">
+        <img src="images/1-3.jpg" alt="Coder Island ask question card with options" class="mockup-img">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features container" id="features">
+  <div class="reveal">
+    <div class="section-label">Features</div>
+    <div class="section-title">Everything you need to<br>keep your agents in check</div>
+  </div>
+  <div class="features-grid reveal">
+    <div class="feature-card"><span class="feature-icon">&#9673;</span><h3>Live Session Monitoring</h3><p>See every Claude Code and Codex session running on your machine. Status, current tool, elapsed time &mdash; updated in real-time via hooks.</p></div>
+    <div class="feature-card"><span class="feature-icon">&#9888;</span><h3>Permission Routing</h3><p>Intercepts permission prompts and shows them in a native banner. Allow, deny, or allow-always without switching to the terminal.</p></div>
+    <div class="feature-card"><span class="feature-icon">&#10067;</span><h3>Question Answering</h3><p>When Claude asks a question, see it in the notch panel with clickable options. Answer directly from the UI.</p></div>
+    <div class="feature-card"><span class="feature-icon">&#9201;</span><h3>Usage Tracking</h3><p>Monitor your 5-hour and weekly rate limits for both Claude and Codex. See remaining percentages at a glance with reset time estimates.</p></div>
+    <div class="feature-card"><span class="feature-icon">&#9654;</span><h3>Terminal Jump</h3><p>Click any session to jump directly to its terminal window. Supports Warp, Ghostty, iTerm2, VS Code, and Terminal.app.</p></div>
+    <div class="feature-card"><span class="feature-icon">&#9835;</span><h3>Sound Notifications</h3><p>Customizable sound effects for permissions, questions, and completions. Mario, Pop, or Chime presets &mdash; or import your own.</p></div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how-it-works container" id="how-it-works">
+  <div class="reveal">
+    <div class="section-label">How it works</div>
+    <div class="section-title">Three steps to<br>agent awareness</div>
+  </div>
+  <div class="steps reveal">
+    <div class="step"><div class="step-num">1</div><h3>Install &amp; Launch</h3><p>Download the .dmg, drag to Applications, and launch. Coder Island appears in your macOS notch area and starts scanning for sessions.</p><span class="step-connector">&rarr;</span></div>
+    <div class="step"><div class="step-num">2</div><h3>Enable Hooks</h3><p>Toggle hooks in Settings. Lightweight scripts relay Claude Code events to the app via a Unix socket &mdash; zero latency.</p><span class="step-connector">&rarr;</span></div>
+    <div class="step"><div class="step-num">3</div><h3>Code with Confidence</h3><p>Run your agents as usual. Coder Island surfaces permissions, questions, and status in real-time without context-switching.</p></div>
+  </div>
+</section>
+
+<!-- TECH -->
+<div class="tech-strip reveal">
+  <div class="tech-item"><span class="td"></span>Swift & SwiftUI</div>
+  <div class="tech-item"><span class="td"></span>macOS 14+</div>
+  <div class="tech-item"><span class="td"></span>Unix Socket IPC</div>
+  <div class="tech-item"><span class="td"></span>~11K Lines</div>
+  <div class="tech-item"><span class="td"></span>MIT License</div>
+</div>
+
+<!-- CTA -->
+<section class="cta container">
+  <div class="reveal">
+    <h2>Ready to meet<br>your island?</h2>
+    <p>Free, open-source, and built for developers who run AI agents all day.</p>
+    <a href="https://github.com/luokebi/coder-island/releases" class="btn-primary">Download for macOS</a>
+    <div class="sys">Requires macOS 14 Sonoma or later</div>
+  </div>
+</section>
+
+<footer>
+  <span>Coder Island &copy; 2025</span>
+  <div style="display:flex;gap:20px">
+    <a href="https://github.com/luokebi/coder-island">GitHub</a>
+    <a href="https://github.com/luokebi/coder-island/issues">Issues</a>
+    <a href="https://github.com/luokebi/coder-island/releases">Releases</a>
+  </div>
+</footer>
+
+<script>
+// Pixel art renderer
+function px(id,pixels,color,cell){
+  const c=document.getElementById(id);if(!c)return;
+  const ctx=c.getContext('2d');const g=cell*.15;
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.shadowColor=color;ctx.shadowBlur=6;ctx.fillStyle=color;
+  pixels.forEach(([x,y])=>{ctx.fillRect(x*cell,y*cell,cell-g,cell-g)});
+}
+const CP=[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[1,2],[3,2],[4,2],[6,2],[0,3],[1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[1,5],[2,5],[3,5],[4,5],[5,5],[6,5],[2,6],[5,6]];
+const XP=[[0,1],[1,2],[2,3],[1,4],[0,5],[4,5],[5,5],[6,5]];
+
+// Nav icon
+px('nav-icon',CP,'#d9854a',2);
+
+// Hero characters — state cycling with badge indicators
+const CELL=5;
+const states=['idle','running','waiting','finished'];
+const claudeColors={idle:'#d9854a',running:'#4d80f3',waiting:'#e8993e',finished:'#40a862'};
+const codexColors={idle:'#40a862',running:'#4d80f3',waiting:'#e8993e',finished:'#40a862'};
+let claudeState=0, codexState=0;
+
+// Badge pixel patterns (6x6 grid)
+const badgePlay=[[1,0],[1,1],[1,2],[1,3],[1,4],[2,1],[2,2],[2,3],[3,2]];// ▶
+const badgeQuestion=[[1,0],[2,0],[3,1],[2,2],[1,3],[1,5]];// ?
+const badgePause=[[0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[2,0],[2,1],[2,2],[2,3],[2,4],[2,5]];// ▌▌
+const badgeCheck=[[0,3],[1,4],[2,3],[3,2],[4,1]];// ✓
+
+function drawBadge(id,pixels,color){
+  const c=document.getElementById(id);if(!c)return;
+  const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+  ctx.shadowColor=color;ctx.shadowBlur=3;ctx.fillStyle=color;
+  pixels.forEach(([x,y])=>{ctx.fillRect(x*2.5,y*2.5,2.2,2.2)});
+}
+
+function drawHeroClaude(color,feet){
+  px('hero-claude',CP.filter(([,y])=>y<6).concat(feet),color,CELL);
+}
+function drawHeroCodex(color,showCursor){
+  px('hero-codex',showCursor?XP:XP.filter(([x,y])=>!(y===5&&x>=4)),color,CELL);
+}
+
+function updateBadges(){
+  const cs=states[claudeState],xs=states[codexState];
+  const cb={idle:badgePause,running:badgePlay,waiting:badgeQuestion,finished:badgeCheck};
+  drawBadge('claude-badge',cb[cs],claudeColors[cs]);
+  drawBadge('codex-badge',cb[xs],codexColors[xs]);
+}
+
+// Initial draw
+drawHeroClaude(claudeColors.idle,[[2,6],[5,6]]);
+drawHeroCodex(codexColors.idle,true);
+updateBadges();
+
+// Walk animation
+let wf=0;
+setInterval(()=>{
+  wf++;
+  const s=states[claudeState];
+  const feet=(s==='running')?(wf%2===0?[[1,6],[5,6]]:[[2,6],[6,6]]):[[2,6],[5,6]];
+  drawHeroClaude(claudeColors[s],feet);
+},220);
+
+// Codex cursor blink
+let cv=true;
+setInterval(()=>{
+  const s=states[codexState];
+  if(s==='running')cv=!cv; else cv=true;
+  drawHeroCodex(codexColors[s],cv);
+},500);
+
+// Cycle states
+setInterval(()=>{
+  claudeState=(claudeState+1)%states.length;
+  updateBadges();
+},3000);
+setTimeout(()=>{
+  setInterval(()=>{
+    codexState=(codexState+1)%states.length;
+    updateBadges();
+  },3000);
+},1500);
+
+// Tab switching
+const tabs=document.querySelectorAll('.mockup-tab');
+const frames=document.querySelectorAll('.mockup-frame');
+let autoTimer;
+
+function switchTo(name){
+  tabs.forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  frames.forEach(f=>{
+    f.classList.toggle('active',f.id==='mock-'+name);
+  });
+}
+
+tabs.forEach(t=>{
+  t.addEventListener('click',()=>{
+    clearInterval(autoTimer);
+    switchTo(t.dataset.tab);
+    // Restart auto-cycle after manual click
+    startAuto();
+  });
+});
+
+// Auto-cycle
+const order=['compact','expanded','permission','ask'];
+let idx=0;
+function startAuto(){
+  clearInterval(autoTimer);
+  autoTimer=setInterval(()=>{
+    idx=(idx+1)%order.length;
+    switchTo(order[idx]);
+  },4000);
+}
+startAuto();
+
+// Scroll reveals
+const obs=new IntersectionObserver(e=>{
+  e.forEach(en=>{if(en.isIntersecting)en.target.classList.add('visible')});
+},{threshold:.15});
+document.querySelectorAll('.reveal').forEach(el=>obs.observe(el));
+</script>
+</body>
+</html>
