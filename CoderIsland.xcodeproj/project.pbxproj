@@ -37,7 +37,6 @@
 		A100001B0000000000000001 /* CodexOAuthUsageFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001B0000000000000001; };
 		A100001C0000000000000001 /* LoginItemHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001C0000000000000001; };
 		A10000200000000000000001 /* HookServerSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000200000000000000001; };
-		A10000210000000000000001 /* HookEventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000210000000000000001; };
 		B10000010000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001; };
 		B10000020000000000000001 /* coder-island-hook in Copy Helpers */ = {isa = PBXBuildFile; fileRef = B20000020000000000000001; };
 /* End PBXBuildFile section */
@@ -76,7 +75,6 @@
 		A20000140000000000000002 /* mario_complete.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_complete.mp3; sourceTree = "<group>"; };
 		A200001D0000000000000002 /* mario_start.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_start.mp3; sourceTree = "<group>"; };
 		A20000200000000000000001 /* HookServerSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookServerSocket.swift; sourceTree = "<group>"; };
-		A20000210000000000000001 /* HookEventLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookEventLog.swift; sourceTree = "<group>"; };
 		B20000010000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B20000020000000000000001 /* coder-island-hook */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "coder-island-hook"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -219,7 +217,6 @@
 				A200000F0000000000000002 /* HookServer.swift */,
 				A20000200000000000000001 /* HookServerSocket.swift */,
 				A20000100000000000000002 /* HookInstaller.swift */,
-				A20000210000000000000001 /* HookEventLog.swift */,
 			);
 			path = HookServer;
 			sourceTree = "<group>";
@@ -373,7 +370,6 @@
 				A10000200000000000000001 /* HookServerSocket.swift in Sources */,
 				A10000100000000000000001 /* HookInstaller.swift in Sources */,
 				A10000110000000000000001 /* PermissionView.swift in Sources */,
-				A10000210000000000000001 /* HookEventLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

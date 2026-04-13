@@ -56,12 +56,6 @@ class HookServer {
         debugLog("[HookServer] action=\(action) bodyLen=\(body.count)")
         guard let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
             debugLog("[HookServer] JSON parse failed, body: \(body.prefix(200))")
-            HookEventLog.shared.append(
-                action: action,
-                eventName: "ParseError",
-                sessionId: "unknown",
-                errorMessage: "JSON parse failed: \(String(body.prefix(200)))"
-            )
             reply(Data("{}".utf8))
             return
         }
@@ -126,14 +120,6 @@ class HookServer {
                 allowSuggestion: allowSuggestion
             )
 
-            HookEventLog.shared.append(
-                action: "permission",
-                eventName: "PermissionRequest",
-                sessionId: sessionId,
-                toolName: toolName,
-                toolInput: toolInput
-            )
-
             pendingRequests[requestId] = PendingRequest(
                 reply: reply,
                 type: .permission,
@@ -179,14 +165,6 @@ class HookServer {
                 options: options
             )
 
-            HookEventLog.shared.append(
-                action: "ask",
-                eventName: "AskUserQuestion",
-                sessionId: sessionId,
-                toolName: "AskUserQuestion",
-                toolInput: toolInput
-            )
-
             pendingRequests[requestId] = PendingRequest(
                 reply: reply,
                 type: .ask,
@@ -220,16 +198,6 @@ class HookServer {
                 sessionId: sessionId,
                 agentId: agentId,
                 toolName: toolName
-            )
-
-            HookEventLog.shared.append(
-                action: "event",
-                eventName: eventName,
-                sessionId: sessionId,
-                agentId: agentId,
-                toolName: toolName,
-                toolInput: toolInput,
-                errorMessage: errorMessage
             )
 
             // Respond right away so the shell script / Claude Code unblock.
