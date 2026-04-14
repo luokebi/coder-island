@@ -168,31 +168,23 @@ class NotchWindow: NSPanel {
         viewModel.notchWidth = notchWidth
         viewModel.notchHeight = notchHeight
         viewModel.topInset = barHeight
+        viewModel.compactBarWidth = compactBarWidth
+        viewModel.compactBarHeight = barHeight
+        viewModel.panelWidth = panelWidth
+        viewModel.maxExpandedHeight = screen.frame.height * 0.7 - IslandView.inset
 
-        // Compute the target frame on the NEW screen directly. We
-        // can't reuse animateWindowResize because it reads self.screen,
-        // which still reflects the old screen until setFrame moves us.
+        // Fixed-size window — always at max expanded dimensions.
         let inset = IslandView.inset
-        let expanded = viewModel.isExpanded
-        let targetWidth: CGFloat
-        let targetHeight: CGFloat
-        if expanded {
-            targetWidth = panelWidth + inset * 2
-            // Mirror animateWindowResize's measurement: use the sizing-only
-            // view (no ScrollView) so we get the natural content height.
-            let fittingHeight = measureExpandedContentHeight(width: panelWidth)
-            targetHeight = min(fittingHeight + inset, screen.frame.height * 0.7)
-        } else {
-            targetWidth = compactBarWidth + inset * 2
-            targetHeight = barHeight + inset
-        }
-        let nudge: CGFloat = (!expanded && hasNotch) ? 11 : 0
-        let x = screen.frame.midX - targetWidth / 2 + nudge
-        let y = screen.frame.maxY - targetHeight
-        let newFrame = NSRect(x: x, y: y, width: targetWidth, height: targetHeight)
-        // Hard-jump (no animation) — flying a window across displays
-        // looks bad and animateFrame doesn't handle multi-screen well.
+        let maxWidth = panelWidth + inset * 2
+        let maxHeight = screen.frame.height * 0.7
+        let x = screen.frame.midX - maxWidth / 2
+        let y = screen.frame.maxY - maxHeight
+        let newFrame = NSRect(x: x, y: y, width: maxWidth, height: maxHeight)
         setFrame(newFrame, display: true, animate: false)
+
+        if viewModel.isExpanded {
+            updateExpandedContentHeight()
+        }
 
         // Re-evaluate fullscreen hide for the new screen.
         applyFullscreenHidingIfNeeded()
@@ -227,12 +219,13 @@ class NotchWindow: NSPanel {
         let menuBarHeight = screenFrame.maxY - screen.visibleFrame.maxY
         let barHeight = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
 
-        // Start as compact bar — window is wider/taller than content for corner + shadow visibility
+        // Fixed-size window: always at max expanded size. All expand/collapse
+        // animation is driven by SwiftUI frame changes, not window resize.
+        // This keeps the top edge permanently flush with the screen top.
         let inset = IslandView.inset
-        let windowWidth = compactBarWidth + inset * 2
-        let windowHeight = barHeight + inset  // only bottom inset, top flush
-        let compactHorizontalNudge: CGFloat = hasNotch ? 11 : 0
-        let x = screenFrame.midX - windowWidth / 2 + compactHorizontalNudge
+        let windowWidth = panelWidth + inset * 2
+        let windowHeight = screenFrame.height * 0.7
+        let x = screenFrame.midX - windowWidth / 2
         let y = screenFrame.maxY - windowHeight
         let frame = NSRect(x: x, y: y, width: windowWidth, height: windowHeight)
 
@@ -257,10 +250,14 @@ class NotchWindow: NSPanel {
         // window/app behind us.
         self.ignoresMouseEvents = true
 
-        // Save notch camera region info for SwiftUI layout.
+        // Save notch camera region info and sizing for SwiftUI layout.
         viewModel.notchWidth = notchWidth
         viewModel.notchHeight = notchHeight
         viewModel.topInset = barHeight
+        viewModel.compactBarWidth = compactBarWidth
+        viewModel.compactBarHeight = barHeight
+        viewModel.panelWidth = panelWidth
+        viewModel.maxExpandedHeight = screenFrame.height * 0.7 - inset
 
         let rootView = IslandView(agentManager: agentManager, viewModel: viewModel)
         self.hostingView = ClickThroughHostingView(rootView: rootView)
@@ -269,33 +266,35 @@ class NotchWindow: NSPanel {
         container.wantsLayer = true
         container.layer?.backgroundColor = .clear
 
-        // When collapsed, restrict clicks to the visible bar rect so the
-        // transparent inset padding around the notch (used only for shadow
-        // headroom) doesn't block clicks to whatever window is underneath.
-        // When expanded, allow the whole content area (closure returns nil).
+        // The window is fixed at max size. Restrict clicks to the
+        // currently-visible area (compact bar or expanded panel) so
+        // transparent regions pass clicks through to apps below.
         let insetValue = IslandView.inset
         container.allowedHitRectProvider = { [weak self, weak container] in
             guard let self = self, let container = container else { return nil }
-            if self.viewModel.isExpanded { return nil }
             let b = container.bounds
-            // In "Hide in fullscreen" mode the visible bar is invisible
-            // — drop the horizontal inset so the user has a generous
-            // strip to hover into, not just the central bar width.
-            if self.viewModel.fullscreenHidden {
-                return NSRect(
-                    x: b.minX,
-                    y: b.minY + insetValue,
-                    width: b.width,
-                    height: b.height - insetValue
-                )
+            let vm = self.viewModel
+
+            if vm.isExpanded {
+                let visW = vm.panelWidth + insetValue * 2
+                let contentH = min(vm.expandedContentHeight + insetValue, vm.maxExpandedHeight + insetValue)
+                let x = (b.width - visW) / 2
+                let y = b.height - contentH
+                return NSRect(x: x, y: y, width: visW, height: contentH)
             }
-            // Visible bar: top is flush to window top, has side+bottom insets.
-            return NSRect(
-                x: b.minX + insetValue,
-                y: b.minY + insetValue,
-                width: b.width - insetValue * 2,
-                height: b.height - insetValue
-            )
+
+            // In "Hide in fullscreen" mode — full width strip for easy hover.
+            if vm.fullscreenHidden {
+                let barH = vm.compactBarHeight
+                return NSRect(x: 0, y: b.height - barH, width: b.width, height: barH)
+            }
+
+            // Compact bar: centered at top of the window.
+            let barW = vm.compactBarWidth + insetValue * 2
+            let barH = vm.compactBarHeight + insetValue
+            let x = (b.width - barW) / 2
+            let y = b.height - barH
+            return NSRect(x: x, y: y, width: barW, height: barH)
         }
 
         hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -316,16 +315,16 @@ class NotchWindow: NSPanel {
             self?.viewModel.dismissPendingsForResolvedSession(sessionId: sessionId)
         }
 
-        // Watch for expand/collapse to resize window
+        // Watch for expand/collapse — measure content so SwiftUI can
+        // animate the frame. No window resize needed (fixed-size window).
         viewModel.onStateChange = { [weak self] expanded in
             guard let self = self else { return }
-            // Expanded: entire window is interactive. Compact: defer to
-            // the tracking area, which will flip this back to true when
-            // the cursor leaves the bar rect.
             if expanded {
-                self.ignoresMouseEvents = false
+                self.updateExpandedContentHeight()
             }
-            self.animateWindowResize(expanded: expanded)
+            // Let cursor-tracking decide ignoresMouseEvents based on
+            // whether the cursor is within the visible content area.
+            self.syncIgnoresMouseEventsFromCursor()
         }
 
         // Resize when sessions change (add/remove/replace) OR when an
@@ -358,7 +357,7 @@ class NotchWindow: NSPanel {
             .debounce(for: .milliseconds(16), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self = self, self.viewModel.isExpanded else { return }
-                self.animateWindowResize(expanded: true)
+                self.updateExpandedContentHeight()
             }
             .store(in: &cancellables)
 
@@ -449,7 +448,20 @@ class NotchWindow: NSPanel {
 
             let hasAsk = self.agentManager.sessions.contains { $0.askQuestion != nil }
             if hasAsk { return }
-            if !self.frame.contains(NSEvent.mouseLocation) {
+
+            // Check against the visible expanded area, not the full (fixed) window.
+            let mouse = NSEvent.mouseLocation
+            let inset = IslandView.inset
+            let visW = self.viewModel.panelWidth + inset * 2
+            let contentH = min(self.viewModel.expandedContentHeight + inset, self.viewModel.maxExpandedHeight + inset)
+            let f = self.frame
+            let visRect = NSRect(
+                x: f.midX - visW / 2,
+                y: f.maxY - contentH,
+                width: visW,
+                height: contentH
+            )
+            if !visRect.contains(mouse) {
                 self.viewModel.collapse()
             }
         }
@@ -486,15 +498,22 @@ class NotchWindow: NSPanel {
         syncIgnoresMouseEventsFromCursor()
     }
 
-    /// Compute the visible bar rect in screen coordinates (matching the
-    /// NotchShape render area) and set ignoresMouseEvents accordingly.
-    /// When expanded, always stay interactive.
+    /// Compute the visible content rect in screen coordinates and set
+    /// ignoresMouseEvents accordingly. Both compact and expanded states
+    /// only respond to mouse events within their visible area — the
+    /// rest of the fixed-size window is click-through.
     private func syncIgnoresMouseEventsFromCursor() {
+        let mouse = NSEvent.mouseLocation  // screen coordinates
+
         if viewModel.isExpanded {
-            if self.ignoresMouseEvents { self.ignoresMouseEvents = false }
+            let visRect = currentExpandedRectInScreen()
+            let shouldIgnore = !visRect.contains(mouse)
+            if self.ignoresMouseEvents != shouldIgnore {
+                self.ignoresMouseEvents = shouldIgnore
+            }
             return
         }
-        let mouse = NSEvent.mouseLocation  // screen coordinates
+
         let barRect = currentCompactBarRectInScreen()
         let shouldIgnore = !barRect.contains(mouse)
         if self.ignoresMouseEvents != shouldIgnore {
@@ -502,29 +521,30 @@ class NotchWindow: NSPanel {
         }
     }
 
-    /// The visible bar lives at the top of the window frame, with left/right
-    /// and bottom insets of `IslandView.inset` for shadow headroom. In
-    /// "Hide in fullscreen" mode the bar is invisible, so we drop the
-    /// horizontal inset to make the hover target easier to find — the
-    /// user is hunting for an invisible strip and shouldn't need pixel
-    /// precision.
-    private func currentCompactBarRectInScreen() -> NSRect {
+    /// The visible expanded panel area in screen coordinates.
+    private func currentExpandedRectInScreen() -> NSRect {
+        let f = self.frame
         let inset = IslandView.inset
+        let visW = viewModel.panelWidth + inset * 2
+        let contentH = min(viewModel.expandedContentHeight + inset, viewModel.maxExpandedHeight + inset)
+        let x = f.midX - visW / 2
+        let y = f.maxY - contentH
+        return NSRect(x: x, y: y, width: visW, height: contentH)
+    }
+
+    /// The visible compact bar within the fixed-size window, in screen
+    /// coordinates. Bar is centered horizontally, flush with the top.
+    private func currentCompactBarRectInScreen() -> NSRect {
         let f = self.frame
         if viewModel.fullscreenHidden {
-            return NSRect(
-                x: f.minX,
-                y: f.minY + inset,
-                width: f.width,
-                height: f.height - inset
-            )
+            let barH = viewModel.compactBarHeight
+            return NSRect(x: f.minX, y: f.maxY - barH, width: f.width, height: barH)
         }
-        return NSRect(
-            x: f.minX + inset,
-            y: f.minY + inset,
-            width: f.width - inset * 2,
-            height: f.height - inset
-        )
+        let barW = viewModel.compactBarWidth
+        let barH = viewModel.compactBarHeight
+        let x = f.midX - barW / 2
+        let y = f.maxY - barH
+        return NSRect(x: x, y: y, width: barW, height: barH)
     }
 
     /// Builds an `ExpandedSizingView` (the no-ScrollView mirror of the
@@ -555,46 +575,12 @@ class NotchWindow: NSPanel {
         return controller.sizeThatFits(in: target).height
     }
 
-    private func animateWindowResize(expanded: Bool) {
-        let screen = self.screen ?? NotchWindow.preferredScreen()
-        let screenFrame = screen.frame
-        let hasNotch = screen.safeAreaInsets.top > 0
-        let menuBarHeight = screenFrame.maxY - screen.visibleFrame.maxY
-        let inset = IslandView.inset
-
-        let targetWidth: CGFloat
-        let targetHeight: CGFloat
-
-        if expanded {
-            targetWidth = panelWidth + inset * 2
-
-            // Measure natural content height with a sizing-only mirror that
-            // skips the ScrollView wrapper. The visible expanded panel uses
-            // a ScrollView, whose own fittingSize collapses to ~0 — so we
-            // can't measure the live root view directly anymore.
-            let fittingHeight = measureExpandedContentHeight(width: panelWidth)
-            // Add the bottom inset that IslandView wraps around its body.
-            let total = fittingHeight + inset
-            targetHeight = min(total, screenFrame.height * 0.7)
-        } else {
-            targetWidth = compactBarWidth + inset * 2
-            let barH = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
-            targetHeight = barH + inset
-        }
-
-        let topY = screenFrame.maxY
-        let compactHorizontalNudge: CGFloat = (!expanded && hasNotch) ? 11 : 0
-        let x = screenFrame.midX - targetWidth / 2 + compactHorizontalNudge
-        let y = topY - targetHeight
-        let newFrame = NSRect(x: x, y: y, width: targetWidth, height: targetHeight)
-
-        // Single smooth animation for width + height together
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.4
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
-            self.animator().setFrame(newFrame, display: true)
-        }
-
+    /// Measure the expanded content and publish the height so SwiftUI
+    /// can animate the visible frame. Called on expand and whenever
+    /// content changes while expanded.
+    private func updateExpandedContentHeight() {
+        let fittingHeight = measureExpandedContentHeight(width: panelWidth)
+        viewModel.expandedContentHeight = fittingHeight
     }
 
     deinit {
@@ -621,15 +607,28 @@ class NotchWindowViewModel: ObservableObject {
     /// bar invisibly while keeping its hit area live so the user can
     /// still hover-to-expand.
     @Published var fullscreenHidden: Bool = false
+    /// Measured height of expanded content (excluding bottom inset).
+    /// Updated by NotchWindow when content changes while expanded.
+    @Published var expandedContentHeight: CGFloat = 200
     var notchWidth: CGFloat = 0   // 0 = no notch
     var notchHeight: CGFloat = 0
     /// Vertical space reserved at the top of the expanded panel so content
     /// clears the menu bar area (and the camera cutout on notch Macs).
     /// Computed once by `NotchWindow.init` from `max(safeAreaInsets.top, menuBarHeight)`.
     var topInset: CGFloat = 0
+    /// Compact bar dimensions (set by NotchWindow from screen geometry).
+    var compactBarWidth: CGFloat = 340
+    var compactBarHeight: CGFloat = 37
+    /// Expanded panel width (constant).
+    var panelWidth: CGFloat = 600
+    /// Maximum expanded height (screen * 0.7 minus inset).
+    var maxExpandedHeight: CGFloat = 500
 
     var hasNotch: Bool { notchHeight > 0 }
     var onStateChange: ((Bool) -> Void)?
+
+    /// Shared SwiftUI animation used for content changes while expanded.
+    static let expandAnimation: Animation = .spring(response: 0.4, dampingFraction: 0.85)
 
     func toggle() {
         isExpanded.toggle()
@@ -643,7 +642,9 @@ class NotchWindowViewModel: ObservableObject {
     }
 
     func addPermission(_ request: PermissionRequest) {
-        pendingPermissions.append(request)
+        withAnimation(Self.expandAnimation) {
+            pendingPermissions.append(request)
+        }
         SoundManager.shared.playPermissionNeeded()
         if !isExpanded && !shouldSuppressAutoExpand(forSessionId: request.sessionId) {
             toggle() // Auto-expand on permission request
@@ -652,7 +653,9 @@ class NotchWindowViewModel: ObservableObject {
     }
 
     func addAsk(_ request: AskRequest) {
-        pendingAsks.append(request)
+        withAnimation(Self.expandAnimation) {
+            pendingAsks.append(request)
+        }
         SoundManager.shared.playAskQuestion()
         if !isExpanded && !shouldSuppressAutoExpand(forSessionId: request.sessionId) {
             toggle()
@@ -697,8 +700,10 @@ class NotchWindowViewModel: ObservableObject {
             guard let self = self else { return }
             let beforePerm = self.pendingPermissions.count
             let beforeAsk = self.pendingAsks.count
-            self.pendingPermissions.removeAll { $0.sessionId == sessionId }
-            self.pendingAsks.removeAll { $0.sessionId == sessionId }
+            withAnimation(Self.expandAnimation) {
+                self.pendingPermissions.removeAll { $0.sessionId == sessionId }
+                self.pendingAsks.removeAll { $0.sessionId == sessionId }
+            }
             let removed = (beforePerm - self.pendingPermissions.count)
                         + (beforeAsk - self.pendingAsks.count)
             if removed > 0 {
@@ -727,7 +732,9 @@ class NotchWindowViewModel: ObservableObject {
         // and trigger a window resize (which measures the view tree).
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.pendingPermissions.removeAll { $0.id == id }
+            withAnimation(Self.expandAnimation) {
+                self.pendingPermissions.removeAll { $0.id == id }
+            }
             HookServer.shared.respondToPermission(requestId: id, decision: decision)
             self.onStateChange?(self.isExpanded)
         }
@@ -736,7 +743,9 @@ class NotchWindowViewModel: ObservableObject {
     func answerAsk(_ id: String, answer: String) {
         // Find the session this ask belongs to and clear its ask data
         let sessionId = pendingAsks.first(where: { $0.id == id })?.sessionId
-        pendingAsks.removeAll { $0.id == id }
+        withAnimation(Self.expandAnimation) {
+            pendingAsks.removeAll { $0.id == id }
+        }
         HookServer.shared.respondToAsk(requestId: id, answer: answer)
 
         // Clear JSONL-detected ask for the same session so it doesn't linger

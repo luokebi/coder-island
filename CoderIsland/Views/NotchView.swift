@@ -6,6 +6,10 @@ struct IslandView: View {
 
     @State private var isHovered = false
     @State private var hoverTimer: Timer?
+    /// Staggered content visibility — content fades in AFTER the shape
+    /// finishes expanding, and fades out BEFORE the shape starts collapsing.
+    @State private var expandedContentVisible = false
+    @State private var compactContentVisible = true
     @State private var showControlMenu = false
     @State private var isGearHovered = false
     @State private var isSettingsHovered = false
@@ -47,39 +51,72 @@ struct IslandView: View {
     }
 
     var body: some View {
+        let targetWidth = viewModel.isExpanded ? viewModel.panelWidth : viewModel.compactBarWidth
+        let targetHeight: CGFloat = viewModel.isExpanded
+            ? min(viewModel.expandedContentHeight, viewModel.maxExpandedHeight)
+            : viewModel.compactBarHeight
+
         ZStack(alignment: .top) {
             compactContent
                 .allowsHitTesting(!viewModel.isExpanded)
                 .onHover { hovering in
                     handleHoverChange(hovering)
                 }
-                .opacity(compactBarOpacity)
+                .opacity(compactContentVisible ? compactBarOpacity : 0.001)
 
             if viewModel.isExpanded {
                 expandedContent
                     .onHover { hovering in
                         handleHoverChange(hovering)
                     }
-                    .transition(.opacity)
+                    .opacity(expandedContentVisible ? 1 : 0)
             }
         }
+        .frame(width: targetWidth, height: targetHeight,
+               alignment: viewModel.isExpanded ? .top : .center)
+        .clipped()
         .padding(.horizontal, Self.inset)
         .padding(.bottom, Self.inset)
-        // Don't pad top — stays flush with screen edge
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(width: targetWidth + Self.inset * 2, height: targetHeight + Self.inset, alignment: .top)
         .background(
-            NotchShape(bottomRadius: viewModel.isExpanded ? 18 : 14)
+            NotchShape(
+                    topCornerRadius: viewModel.isExpanded ? 16 : 8,
+                    bottomCornerRadius: viewModel.isExpanded ? 20 : 14
+                )
                 .fill(barColor)
                 .padding(.horizontal, Self.inset)
                 .padding(.bottom, Self.inset)
-                // Shadow — black only, smaller/softer than before so it
-                // doesn't bleed too far into the wallpaper around the panel.
                 .shadow(
                     color: (isHovered || viewModel.isExpanded) ? .black.opacity(0.5) : .clear,
                     radius: (isHovered || viewModel.isExpanded) ? 8 : 0, y: 3
                 )
                 .opacity(barShapeOpacity)
         )
+        // Don't pad top — stays flush with screen edge
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.isExpanded)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.expandedContentHeight)
+        .onChange(of: viewModel.isExpanded) { expanded in
+            if expanded {
+                // Compact fades out immediately
+                withAnimation(.easeOut(duration: 0.1)) {
+                    compactContentVisible = false
+                }
+                // Expanded content fades in after shape starts growing
+                withAnimation(.easeOut(duration: 0.25).delay(0.12)) {
+                    expandedContentVisible = true
+                }
+            } else {
+                // Expanded content fades out quickly
+                withAnimation(.easeOut(duration: 0.1)) {
+                    expandedContentVisible = false
+                }
+                // Compact fades in after shape finishes shrinking
+                withAnimation(.easeOut(duration: 0.25).delay(0.15)) {
+                    compactContentVisible = true
+                }
+            }
+        }
     }
 
     private func handleHoverChange(_ hovering: Bool) {
@@ -274,6 +311,7 @@ struct IslandView: View {
                     LazyVStack(spacing: 4) {
                         ForEach(agentManager.sessions) { session in
                             SessionCard(session: session, viewModel: viewModel, agentManager: agentManager)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -852,52 +890,65 @@ struct SessionCard: View {
 
 // MARK: - Notch Shape
 
+/// Notch shape with concave top corners extending OUTSIDE the rect
+/// (connecting to the screen edge) and rounded bottom corners inside.
+/// Both radii are animatable for smooth expand/collapse transitions.
 struct NotchShape: Shape {
-    let bottomRadius: CGFloat
+    var topCornerRadius: CGFloat
+    var bottomCornerRadius: CGFloat
+
+    init(topCornerRadius: CGFloat = 10, bottomCornerRadius: CGFloat = 14) {
+        self.topCornerRadius = topCornerRadius
+        self.bottomCornerRadius = bottomCornerRadius
+    }
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { .init(topCornerRadius, bottomCornerRadius) }
+        set {
+            topCornerRadius = newValue.first
+            bottomCornerRadius = newValue.second
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
-        let r = bottomRadius
-        let tr: CGFloat = 16  // top corner radius
         var path = Path()
+        let tr = topCornerRadius
+        let br = bottomCornerRadius
 
-        // Start at top-left, offset by top radius
+        // Start at top-left, OUTSIDE the rect for concave connection
         path.move(to: CGPoint(x: rect.minX - tr, y: rect.minY))
 
         // Top-left concave corner (curves inward from screen edge)
-        path.addCurve(
+        path.addQuadCurve(
             to: CGPoint(x: rect.minX, y: rect.minY + tr),
-            control1: CGPoint(x: rect.minX, y: rect.minY),
-            control2: CGPoint(x: rect.minX, y: rect.minY)
+            control: CGPoint(x: rect.minX, y: rect.minY)
         )
 
         // Left side down
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - r))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - br))
 
-        // Bottom-left corner
-        path.addCurve(
-            to: CGPoint(x: rect.minX + r, y: rect.maxY),
-            control1: CGPoint(x: rect.minX, y: rect.maxY - r * 0.45),
-            control2: CGPoint(x: rect.minX + r * 0.45, y: rect.maxY)
+        // Bottom-left rounded corner
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + br, y: rect.maxY),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
         )
 
         // Bottom edge
-        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - br, y: rect.maxY))
 
-        // Bottom-right corner
-        path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.maxY - r),
-            control1: CGPoint(x: rect.maxX - r * 0.45, y: rect.maxY),
-            control2: CGPoint(x: rect.maxX, y: rect.maxY - r * 0.45)
+        // Bottom-right rounded corner
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.maxY - br),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
         )
 
         // Right side up
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + tr))
 
-        // Top-right concave corner
-        path.addCurve(
+        // Top-right concave corner (extends OUTSIDE the rect)
+        path.addQuadCurve(
             to: CGPoint(x: rect.maxX + tr, y: rect.minY),
-            control1: CGPoint(x: rect.maxX, y: rect.minY),
-            control2: CGPoint(x: rect.maxX, y: rect.minY)
+            control: CGPoint(x: rect.maxX, y: rect.minY)
         )
 
         path.closeSubpath()
