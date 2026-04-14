@@ -6,6 +6,10 @@
 
 **A macOS notch bar utility that monitors Claude Code and Codex CLI sessions in real-time.**
 
+[![GitHub release](https://img.shields.io/github/v/release/luokebi/coder-island)](https://github.com/luokebi/coder-island/releases)
+[![Downloads](https://img.shields.io/github/downloads/luokebi/coder-island/total)](https://github.com/luokebi/coder-island/releases)
+[![Website](https://img.shields.io/badge/Website-coder--island.com-blue)](https://coder-island.com)
+
 See what your agents are doing, answer their questions, and track usage — all from the Dynamic Island-style notch area.
 
 </div>
