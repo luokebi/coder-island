@@ -31,8 +31,7 @@ Source of truth: `codex-rs/app-server-protocol/schema/typescript/v2/HookEventNam
 
 Settings file: `~/.codex/hooks.json` (separate from Claude's
 `~/.claude/settings.json`). Toggle: `codex_hooks = true` in
-`~/.codex/config.toml` (Codex feature flag — users who installed
-vibe-island already have this enabled).
+`~/.codex/config.toml` (Codex feature flag).
 
 | Event | Matcher | Handler | Notes |
 |---|---|---|---|
@@ -43,7 +42,7 @@ vibe-island already have this enabled).
 | `Stop` | (ignored) | `coder-island-event` | Payload carries `last_assistant_message` and `stop_hook_active` |
 
 Codex hook entries **coexist** with any third-party entries already in
-`hooks.json` (e.g. vibe-island). `HookInstaller.registerInCodexSettings`
+`hooks.json`. `HookInstaller.registerInCodexSettings`
 only replaces its own `coder-island` entries on each key.
 
 Payload field names match Claude Code's (`hook_event_name`,
@@ -74,7 +73,7 @@ both agents through the same code path. Codex's `session_id` is a
 | `SessionStart` | Instant new-session detection, no 3s poll delay; payload has initial cwd/gitBranch/customTitle | Today: `scanClaudeCodeSessions` reads `~/.claude/sessions/*.json` pid files; slow-ish to discover |
 | `SessionEnd` | Instant session removal; payload carries exit reason (`clear`/`resume`/`logout`/`prompt_input_exit`/`bypass_permissions_disabled`/`other` per `EXIT_REASONS`) | Today: we guess via `isProcessRunning(pid:)` |
 | `SubagentStart` / `SubagentStop` | Show Task-tool subagent lifecycle inside the parent card; would need subagent modelling in AgentSession | Subagent transcripts live at `~/.claude/projects/*/subagents/agent-*.jsonl` — not yet parsed |
-| `Notification` | Claude Code's native "needs attention" notifications (idle waiting, turn timeout, etc.) — this is what vibe-island listens on `*` | Probably enables a "nudge" toast pattern |
+| `Notification` | Claude Code's native "needs attention" notifications (idle waiting, turn timeout, etc.) | Probably enables a "nudge" toast pattern |
 | `PermissionDenied` | Final-denial notification after the permission hook chain. Currently invisible — user only sees the tool "not running" | Good for red error banner |
 | `PreCompact` / `PostCompact` | Show "Compacting context..." progress; compaction is 10–60s and currently unexplained in UI | |
 | `Elicitation` / `ElicitationResult` | MCP server-initiated Q&A (distinct from Claude's own AskUserQuestion). Only relevant if the user runs MCP servers that elicit | |

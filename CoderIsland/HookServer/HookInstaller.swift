@@ -178,7 +178,7 @@ class HookInstaller {
     }
 
     /// Rewrite the statusLine script to chain to an existing command
-    /// (e.g. vibe-island's statusLine) so both apps receive the data.
+    /// so both apps receive the data.
     /// Also saves the original command so uninstall can restore it.
     private func rewriteStatusLineScript(chainTo originalCmd: String) {
         let cacheDir = HookInstaller.cacheDir.path
@@ -189,7 +189,7 @@ class HookInstaller {
         try? originalCmd.write(to: chainFile, atomically: true, encoding: .utf8)
 
         // NOTE: intentionally no appGuard here — the chain-to variant must
-        // always forward stdin to the original statusLine (e.g. vibe-island's)
+        // always forward stdin to the original statusLine
         // even if CoderIsland.app is missing. The rate_limits caching is a
         // harmless no-op when the app is gone.
         let content = """
@@ -289,7 +289,7 @@ class HookInstaller {
         settings["hooks"] = hooks
 
         // Register our statusLine wrapper. If another statusLine already
-        // exists (e.g. vibe-island), we save its command and chain to it
+        // exists, we save its command and chain to it
         // from our script so both work.
         let statusLinePath = hookDir.appendingPathComponent(statusLineScript).path
         let existingStatusLine = settings["statusLine"] as? [String: Any]
@@ -358,8 +358,8 @@ class HookInstaller {
     // MARK: - Codex hook registration
 
     /// Append coder-island's event relay entries to ~/.codex/hooks.json while
-    /// preserving any existing entries (e.g. vibe-island hooks installed by
-    /// another app). Safe to call repeatedly — we dedupe by command path.
+    /// preserving any existing entries. Safe to call repeatedly — we dedupe
+    /// by command path.
     private func registerInCodexSettings() {
         let hooksPath = codexHooksFileURL
         let dir = hooksPath.deletingLastPathComponent()
@@ -382,8 +382,8 @@ class HookInstaller {
         for key in codexEventHookNames {
             var entries = hooks[key] as? [[String: Any]] ?? []
             // Remove any previous coder-island entries under this key so
-            // repeat installs don't accumulate duplicates. vibe-island and
-            // other third-party entries are preserved.
+            // repeat installs don't accumulate duplicates. Third-party
+            // entries are preserved.
             entries.removeAll { entry in
                 (entry["hooks"] as? [[String: Any]])?.contains { ($0["command"] as? String)?.contains("coder-island") == true } ?? false
             }
@@ -408,7 +408,7 @@ class HookInstaller {
     }
 
     /// Remove coder-island's entries from ~/.codex/hooks.json while leaving
-    /// third-party entries (vibe-island etc.) alone.
+    /// third-party entries alone.
     private func unregisterFromCodexSettings() {
         let hooksPath = codexHooksFileURL
         guard let data = try? Data(contentsOf: hooksPath),

@@ -144,7 +144,7 @@ final class UsageManager: ObservableObject {
             if let r = secondary["resets_at"] as? Double { info.secondaryResetsAt = Date(timeIntervalSince1970: r) }
             else if let r = secondary["resets_at"] as? Int { info.secondaryResetsAt = Date(timeIntervalSince1970: TimeInterval(r)) }
         }
-        // Alternative shape: five_hour / seven_day (vibe-island compat)
+        // Alternative shape: five_hour / seven_day
         if let fiveHour = json["five_hour"] as? [String: Any], info.primaryPercentUsed == nil {
             info.primaryPercentUsed = (fiveHour["used_percentage"] as? Double) ?? (fiveHour["percentage"] as? Double)
             info.primaryWindowMinutes = 300
