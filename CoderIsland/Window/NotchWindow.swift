@@ -325,6 +325,20 @@ class NotchWindow: NSPanel {
             // Let cursor-tracking decide ignoresMouseEvents based on
             // whether the cursor is within the visible content area.
             self.syncIgnoresMouseEventsFromCursor()
+
+            // After collapsing, SwiftUI's .onHover won't fire if the
+            // cursor is already over the compact bar (no enter transition).
+            // Re-check after the collapse animation settles and re-expand
+            // if the cursor is still over the bar.
+            if !expanded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self = self, !self.viewModel.isExpanded else { return }
+                    let mouse = NSEvent.mouseLocation
+                    if self.currentCompactBarRectInScreen().contains(mouse) {
+                        self.viewModel.toggle()
+                    }
+                }
+            }
         }
 
         // Resize when sessions change (add/remove/replace) OR when an

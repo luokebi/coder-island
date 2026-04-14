@@ -27,7 +27,7 @@ struct IslandView: View {
     private let usageButtonSpacing: CGFloat = 12
     private let usageOverlayTopInset: CGFloat = 6
     private let usageOverlayLeadingInset: CGFloat = 12
-    private let usagePopoverTopGap: CGFloat = 6
+    private let usagePopoverTopGap: CGFloat = 8
     // Extra padding around the shape so corners + shadow are visible
     static let inset: CGFloat = 24
 
