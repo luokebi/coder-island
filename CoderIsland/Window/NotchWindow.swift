@@ -157,9 +157,9 @@ class NotchWindow: NSPanel {
             } else {
                 notchWidth = 180
             }
-            compactBarWidth = max(250, notchWidth + 80)
+            compactBarWidth = max(235, notchWidth + 45)
         } else {
-            compactBarWidth = 340
+            compactBarWidth = 300
         }
 
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
@@ -213,7 +213,7 @@ class NotchWindow: NSPanel {
 
             // Use notch width as the center text lane baseline, plus a little
             // room on both sides for the left icon and right badge.
-            compactBarWidth = max(250, notchWidth + 80)
+            compactBarWidth = max(235, notchWidth + 45)
         }
 
         let menuBarHeight = screenFrame.maxY - screen.visibleFrame.maxY
