@@ -69,13 +69,19 @@ struct AgentRowView: View {
             // Agent character
             Group {
                 let waitingColor: Color? = (session.status == .waiting || hasPendingPermission) ? .orange : nil
-                switch session.agentType {
-                case .claudeCode:
-                    ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
-                        .opacity(isDimmed ? 0.5 : 1)
-                case .codex:
-                    CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
-                        .opacity(isDimmed ? 0.5 : 1)
+                ZStack {
+                    switch session.agentType {
+                    case .claudeCode:
+                        ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                            .opacity(isDimmed ? 0.5 : 1)
+                    case .codex:
+                        CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                            .opacity(isDimmed ? 0.5 : 1)
+                    }
+                    // Row-scoped effect: only fire when the event's sessionId
+                    // matches this row. nil userInfo sessionId also matches
+                    // (covers Settings ▶ preview, which has no session).
+                    PixelEffectOverlay(matchSessionId: session.id)
                 }
             }
             .scaleEffect(1.2)

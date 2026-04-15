@@ -380,12 +380,28 @@ class SoundManager {
         }
 
         // 3. System named fallback
-        for name in systemNames {
-            if SoundPackPlayer.shared.play(source: .systemNamed(name)) { return }
+        var played = false
+        for name in systemNames where SoundPackPlayer.shared.play(source: .systemNamed(name)) {
+            played = true
+            break
         }
 
         // 4. Beep
-        SoundPackPlayer.shared.play(source: .beep)
+        if !played {
+            SoundPackPlayer.shared.play(source: .beep)
+        }
+
+        // Notify the notch visual layer so it can spawn a pixel effect
+        // (e.g. taskComplete star burst). Do this on every legacy play so
+        // both the four wired trigger points and the new Category API post
+        // the same event shape.
+        if let category = SoundCategory(event: event) {
+            NotificationCenter.default.post(
+                name: .coderIslandSoundPlayed,
+                object: nil,
+                userInfo: ["category": category.rawValue]
+            )
+        }
     }
 
     private func fallbackNames(for event: Event) -> [String] {
@@ -412,25 +428,43 @@ class SoundManager {
             lastPlayedAt[key] = now
         }
 
+        var played = false
+
         // 1. Override file (new Overrides/<category>.<ext> → legacy fallback)
         if let url = overrideFileURL(for: category),
            SoundPackPlayer.shared.play(source: .file(url)) {
-            return
+            played = true
         }
 
         // 2. Active pack
-        if let pack = activePack,
+        if !played,
+           let pack = activePack,
            SoundPackPlayer.shared.play(pack: pack, categoryId: category.manifestKey) {
-            return
+            played = true
         }
 
         // 3. System named fallback
-        for name in category.systemSoundFallback {
-            if SoundPackPlayer.shared.play(source: .systemNamed(name)) { return }
+        if !played {
+            for name in category.systemSoundFallback where
+                SoundPackPlayer.shared.play(source: .systemNamed(name)) {
+                played = true
+                break
+            }
         }
 
         // 4. Beep
-        SoundPackPlayer.shared.play(source: .beep)
+        if !played {
+            SoundPackPlayer.shared.play(source: .beep)
+        }
+
+        // Post a NotificationCenter event for visual coupling so the notch
+        // can spawn a matching pixel effect. Fires on every path (including
+        // preview and beep fallback) so users see feedback no matter what.
+        NotificationCenter.default.post(
+            name: .coderIslandSoundPlayed,
+            object: nil,
+            userInfo: ["category": category.rawValue]
+        )
     }
 
     // MARK: - Legacy custom-file helpers

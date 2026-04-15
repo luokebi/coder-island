@@ -178,10 +178,17 @@ struct IslandView: View {
                 Group {
                     let isActive = displaySession.status == .running || displaySession.status == .waiting || displayHasPermission
                     let waitingColor: Color? = (displaySession.status == .waiting || displayHasPermission) ? .orange : nil
-                    if displaySession.agentType == .codex {
-                        CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
-                    } else {
-                        ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                    ZStack {
+                        if displaySession.agentType == .codex {
+                            CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                        } else {
+                            ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                        }
+                        // Compact bar picks up every sound event (no
+                        // sessionId filter) since it's the global single-agent
+                        // view — whichever session fires, we want the burst
+                        // to show up on the visible sprite.
+                        PixelEffectOverlay()
                     }
                 }
 

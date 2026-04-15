@@ -43,6 +43,7 @@
 		A10000240000000000000001 /* SoundPackPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000240000000000000002; };
 		A10000250000000000000001 /* SoundPacks in Resources */ = {isa = PBXBuildFile; fileRef = A20000250000000000000002; };
 		A10000260000000000000001 /* SoundCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000260000000000000002; };
+		A10000270000000000000001 /* PixelEffectOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000270000000000000002; };
 		B10000010000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001; };
 		B10000020000000000000001 /* coder-island-hook in Copy Helpers */ = {isa = PBXBuildFile; fileRef = B20000020000000000000001; };
 /* End PBXBuildFile section */
@@ -87,6 +88,7 @@
 		A20000240000000000000002 /* SoundPackPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPackPlayer.swift; sourceTree = "<group>"; };
 		A20000250000000000000002 /* SoundPacks */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SoundPacks; path = Resources/SoundPacks; sourceTree = "<group>"; };
 		A20000260000000000000002 /* SoundCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundCategory.swift; sourceTree = "<group>"; };
+		A20000270000000000000002 /* PixelEffectOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelEffectOverlay.swift; sourceTree = "<group>"; };
 		B20000010000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B20000020000000000000001 /* coder-island-hook */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "coder-island-hook"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -172,6 +174,7 @@
 				A20000080000000000000001 /* SettingsView.swift */,
 				A200000E0000000000000002 /* CompactBarView.swift */,
 				A20000110000000000000002 /* PermissionView.swift */,
+				A20000270000000000000002 /* PixelEffectOverlay.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -402,6 +405,7 @@
 				A10000230000000000000001 /* SoundPackStore.swift in Sources */,
 				A10000240000000000000001 /* SoundPackPlayer.swift in Sources */,
 				A10000260000000000000001 /* SoundCategory.swift in Sources */,
+				A10000270000000000000001 /* PixelEffectOverlay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
