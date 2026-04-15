@@ -91,16 +91,9 @@ struct SettingsView: View {
                         ) {
                             packMenu.disabled(!soundEnabled)
                         }
-                    }
-
-                    ForEach(SoundCategory.Section.allCases, id: \.self) { section in
-                        // Hide sections that have no v1-active categories.
-                        // Reserved categories stay wired in the architecture
-                        // but do not surface in the UI yet; they'll appear
-                        // automatically when the matching trigger point
-                        // lands in AgentManager / HookServer / etc.
-                        if SoundCategory.allCases.contains(where: { $0.section == section && $0.isActiveInV1 }) {
-                            soundSectionCard(section)
+                        ForEach(SoundCategory.allCases.filter { $0.isActiveInV1 }, id: \.self) { category in
+                            rowDivider
+                            categoryRow(category)
                         }
                     }
 
