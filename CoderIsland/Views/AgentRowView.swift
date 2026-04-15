@@ -662,6 +662,11 @@ struct ClaudePixelChar: View {
     var showGlow: Bool = true
     @State private var walkFrame = 0
     @State private var walkGeneration = 0
+    /// When true, the two eye gaps on row 2 are filled in to simulate
+    /// closed eyes. Flipped to true for ~120ms at random intervals by
+    /// `scheduleBlink()` so the sprite feels alive when idle.
+    @State private var blinkActive = false
+    @State private var blinkGeneration = 0
 
     private static let bodyPixels: [(Int, Int)] = [
         (1,1),(2,1),(3,1),(4,1),(5,1),(6,1),
@@ -670,6 +675,10 @@ struct ClaudePixelChar: View {
               (1,4),(2,4),(3,4),(4,4),(5,4),(6,4),
               (1,5),(2,5),(3,5),(4,5),(5,5),(6,5),
     ]
+
+    /// Pixels added to row 2 during a blink — fills the two eye gaps
+    /// (x=2 and x=5) so the whole row reads as a single closed band.
+    private static let closedEyePixels: [(Int, Int)] = [(2,2), (5,2)]
 
     private var allPixels: [(Int, Int)] {
         let isWalking = isAnimating && colorOverride == nil
@@ -681,7 +690,11 @@ struct ClaudePixelChar: View {
         } else {
             feet = [(2,6), (5,6)]
         }
-        return Self.bodyPixels + feet
+        var px = Self.bodyPixels + feet
+        if blinkActive {
+            px.append(contentsOf: Self.closedEyePixels)
+        }
+        return px
     }
 
     var body: some View {
@@ -695,9 +708,44 @@ struct ClaudePixelChar: View {
             pixels: allPixels,
             showGlow: showGlow
         )
-        .onAppear { startWalk() }
+        .onAppear {
+            startWalk()
+            startBlink()
+        }
         .onChange(of: isAnimating) { _, _ in startWalk() }
-        .onChange(of: colorOverride) { _, _ in startWalk() }
+        .onChange(of: colorOverride) { _, _ in
+            startWalk()
+            startBlink()
+        }
+    }
+
+    // MARK: - Blink
+
+    /// Kicks off the blink loop. Skips blinking when the sprite is in
+    /// a color-override state (waiting / permission), since eyes change
+    /// would read as alert pulsing and muddy that signal.
+    private func startBlink() {
+        blinkGeneration += 1
+        blinkActive = false
+        guard colorOverride == nil else { return }
+        scheduleNextBlink(generation: blinkGeneration)
+    }
+
+    private func scheduleNextBlink(generation: Int) {
+        // 4-6s random wait between blinks — anything shorter reads as
+        // nervous, anything longer and you stop perceiving the sprite
+        // as alive.
+        let wait = Double.random(in: 4...6)
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            guard generation == self.blinkGeneration, self.colorOverride == nil else { return }
+            self.blinkActive = true
+            // ~120ms closed phase, then reopen and queue the next blink.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                guard generation == self.blinkGeneration else { return }
+                self.blinkActive = false
+                self.scheduleNextBlink(generation: generation)
+            }
+        }
     }
 
     private func startWalk() {
