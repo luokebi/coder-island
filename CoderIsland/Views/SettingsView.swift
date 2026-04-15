@@ -94,7 +94,14 @@ struct SettingsView: View {
                     }
 
                     ForEach(SoundCategory.Section.allCases, id: \.self) { section in
-                        soundSectionCard(section)
+                        // Hide sections that have no v1-active categories.
+                        // Reserved categories stay wired in the architecture
+                        // but do not surface in the UI yet; they'll appear
+                        // automatically when the matching trigger point
+                        // lands in AgentManager / HookServer / etc.
+                        if SoundCategory.allCases.contains(where: { $0.section == section && $0.isActiveInV1 }) {
+                            soundSectionCard(section)
+                        }
                     }
 
                     if !soundStatus.isEmpty {
@@ -527,7 +534,7 @@ struct SettingsView: View {
     // MARK: - Category section card
 
     private func soundSectionCard(_ section: SoundCategory.Section) -> some View {
-        let categories = SoundCategory.allCases.filter { $0.section == section }
+        let categories = SoundCategory.allCases.filter { $0.section == section && $0.isActiveInV1 }
         return VStack(alignment: .leading, spacing: 8) {
             Text(section.displayName.uppercased())
                 .font(.system(size: 11, weight: .semibold, design: .default))
