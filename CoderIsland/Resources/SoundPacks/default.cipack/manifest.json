@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "com.coderisland.default",
+  "name": "Retro Platformer (Placeholder)",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coder Island",
+    "url": "https://coder-island.app"
+  },
+  "license": "PLACEHOLDER-REPLACE-BEFORE-RELEASE",
+  "description": "Placeholder pack using legacy Mario-style sounds. MUST be replaced with original or CC0 audio before public release.",
+  "defaults": {
+    "volume": 0.7,
+    "randomizeVariants": true
+  },
+  "sounds": {
+    "appStarted": [
+      { "file": "sounds/mario_start.mp3" }
+    ],
+    "sessionStart": [
+      { "file": "sounds/mario_start.mp3" }
+    ],
+    "taskComplete": [
+      { "file": "sounds/mario_complete.mp3" }
+    ],
+    "inputRequired": [
+      { "file": "sounds/mario_permission.mp3" }
+    ],
+    "inputQuestion": [
+      { "file": "sounds/mario_question.mp3" }
+    ]
+  }
+}

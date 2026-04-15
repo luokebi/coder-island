@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "com.coderisland.system",
+  "name": "macOS System Sounds",
+  "version": "1.0.0",
+  "author": {
+    "name": "Coder Island",
+    "url": "https://coder-island.app"
+  },
+  "license": "Apple-SystemSounds",
+  "description": "Uses built-in macOS system sounds (NSSound names). No audio files bundled — resolved at play time.",
+  "defaults": {
+    "volume": 0.7,
+    "randomizeVariants": false
+  },
+  "sounds": {
+    "appStarted": [
+      { "file": "system:Hero" }
+    ],
+    "sessionStart": [
+      { "file": "system:Glass" }
+    ],
+    "taskComplete": [
+      { "file": "system:Glass" }
+    ],
+    "taskError": [
+      { "file": "system:Basso" }
+    ],
+    "inputRequired": [
+      { "file": "system:Submarine" }
+    ],
+    "inputQuestion": [
+      { "file": "system:Ping" }
+    ]
+  }
+}
