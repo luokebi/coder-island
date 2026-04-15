@@ -1866,6 +1866,12 @@ class AgentManager: ObservableObject {
             "code helper": "VS Code",
             "visual studio code": "VS Code",
         ]
+        /// Non-terminal hosts that embed a shell (Claude for Desktop, etc.).
+        /// Detected by bundle identifier so we don't false-match on the
+        /// Claude agent label or on unrelated apps named "Claude".
+        let hostByBundleId: [String: String] = [
+            "com.anthropic.claudefordesktop": "Claude App",
+        ]
         let workspace = NSWorkspace.shared
 
         let matchAppName: (String) -> String? = { name in
@@ -1877,11 +1883,24 @@ class AgentManager: ObservableObject {
             return nil
         }
 
-        // First, check if the process itself is a known terminal/app
-        if let processApp = workspace.runningApplications.first(where: { $0.processIdentifier == pid }) {
-            if let name = processApp.localizedName, let matched = matchAppName(name) {
+        /// Look up a running app by its PID and return either a terminal
+        /// match, a host-by-bundle-id match, or nil.
+        let matchRunningApp: (Int32) -> String? = { appPid in
+            guard let app = workspace.runningApplications.first(where: { $0.processIdentifier == appPid }) else {
+                return nil
+            }
+            if let bundleId = app.bundleIdentifier, let host = hostByBundleId[bundleId] {
+                return host
+            }
+            if let name = app.localizedName, let matched = matchAppName(name) {
                 return matched
             }
+            return nil
+        }
+
+        // First, check if the process itself is a known terminal/host
+        if let matched = matchRunningApp(pid) {
+            return matched
         }
 
         // Strategy 1: Walk up the process tree (works when terminal PID is a direct ancestor)
@@ -1894,10 +1913,8 @@ class AgentManager: ObservableObject {
             if visited.contains(ppid) { break }
             visited.insert(ppid)
 
-            if let parentApp = workspace.runningApplications.first(where: { $0.processIdentifier == ppid }) {
-                if let name = parentApp.localizedName, let matched = matchAppName(name) {
-                    return matched
-                }
+            if let matched = matchRunningApp(ppid) {
+                return matched
             }
 
             let task = Process()
@@ -1938,18 +1955,27 @@ class AgentManager: ObservableObject {
         if let tty = getProcessTTY(pid: pid) {
             // Get all PIDs on the same TTY
             let ttyPids = getPidsOnTTY(tty)
-            // Check which running terminal app owns any process on this TTY
+            // Check which running terminal app (or embedded host like
+            // Claude App) owns any process on this TTY.
             for app in workspace.runningApplications {
-                guard let name = app.localizedName, terminalApps.contains(name) else { continue }
-                // Walk children of this app to see if any share the TTY
+                let hostLabel: String? = {
+                    if let bundleId = app.bundleIdentifier, let host = hostByBundleId[bundleId] {
+                        return host
+                    }
+                    if let name = app.localizedName, terminalApps.contains(name) {
+                        return name
+                    }
+                    return nil
+                }()
+                guard let label = hostLabel else { continue }
                 let appPid = app.processIdentifier
                 if ttyPids.contains(appPid) {
-                    return name
+                    return label
                 }
                 // Check if any process on this TTY has this app as an ancestor
                 for ttyPid in ttyPids {
                     if isAncestor(appPid, of: ttyPid) {
-                        return name
+                        return label
                     }
                 }
             }
