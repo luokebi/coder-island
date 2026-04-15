@@ -423,9 +423,13 @@ struct CometTrail: View {
     /// dithered look rather than a solid blue block.
     /// skipMask: if a position is in the mask, that trail pixel is omitted.
     private let streaks: [(y: Int, phase: Int, skipMask: Set<Int>)] = [
-        (1, 0, [1]),     // top: skip 2nd trail pixel so it reads as "head + gap + dot"
-        (3, 2, []),      // middle: full 3-pixel trail (main comet)
-        (5, 4, [2]),     // bottom: skip 3rd trail pixel
+        // Use rows 0/2/4 so the content's vertical center (row 2) lines
+        // up with the frame center. With y=1/3/5 (center row 3) the comet
+        // rendered visibly lower than neighboring sprites when HStack
+        // centered both canvases.
+        (0, 0, [1]),     // top: skip 2nd trail pixel so it reads as "head + gap + dot"
+        (2, 2, []),      // middle: full 3-pixel trail (main comet)
+        (4, 4, [2]),     // bottom: skip 3rd trail pixel
     ]
 
     /// Per-column trail brightness. Index 0 = head. Three visible pixels
@@ -444,7 +448,9 @@ struct CometTrail: View {
                 }
             }
         }
-        .frame(width: 10, height: 12)
+        // 10pt tall frame matches the content range (rows 0–4 × 2pt = 10pt)
+        // so the HStack vertically centers the streaks with the sprite.
+        .frame(width: 10, height: 10)
         .shadow(color: color.opacity(0.5), radius: 2)
         .onAppear { startTimer() }
         .onDisappear { stopTimer() }

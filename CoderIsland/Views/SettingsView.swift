@@ -34,173 +34,117 @@ struct SettingsView: View {
     /// Mirror of per-category override display names.
     @State private var categoryOverrideNames: [String: String] = [:]
 
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+    /// Which tab the sidebar currently shows.
+    @State private var selectedCategory: SettingsCategory = .general
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    appHeader
+    enum SettingsCategory: String, CaseIterable, Identifiable {
+        case general
+        case system
+        case sound
+        #if DEBUG
+        case debug
+        #endif
+        case about
 
-                    sectionTitle("Agent Monitoring")
-                    settingsCard {
-                        settingsRow(
-                            title: "Claude Code",
-                            subtitle: "Monitor Claude Code sessions"
-                        ) {
-                            rightSwitch($monitorClaudeCode)
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "OpenAI Codex CLI",
-                            subtitle: "Monitor Codex sessions"
-                        ) {
-                            rightSwitch($monitorCodex)
-                        }
-                    }
+        var id: String { rawValue }
 
-                    sectionTitle("Interaction")
-                    settingsCard {
-                        settingsRow(
-                            title: "Answer questions & permissions in Coder Island",
-                            subtitle: "Install AskUserQuestion + permission hooks. Requires restarting Claude Code sessions."
-                        ) {
-                            rightSwitch($askHooksEnabled)
-                                .onChange(of: askHooksEnabled) { _, enabled in
-                                    if enabled {
-                                        HookInstaller.shared.install()
-                                    } else {
-                                        HookInstaller.shared.uninstall()
-                                    }
-                                }
-                        }
-                    }
-
-                    sectionTitle("Sound")
-                    settingsCard {
-                        settingsRow(
-                            title: "Sound effects",
-                            subtitle: "Play sounds for agent lifecycle events."
-                        ) {
-                            rightSwitch($soundEnabled)
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "Sound pack",
-                            subtitle: activePackDescription
-                        ) {
-                            packMenu.disabled(!soundEnabled)
-                        }
-                        ForEach(SoundCategory.allCases.filter { $0.isActiveInV1 }, id: \.self) { category in
-                            rowDivider
-                            categoryRow(category)
-                        }
-                    }
-
-                    if !soundStatus.isEmpty {
-                        Text(soundStatus)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.65))
-                            .padding(.horizontal, 4)
-                    }
-
-                    sectionTitle("System")
-                    settingsCard {
-                        settingsRow(
-                            title: "Launch at login",
-                            subtitle: "Start Coder Island automatically after login"
-                        ) {
-                            rightSwitch($launchAtLogin)
-                                .onChange(of: launchAtLogin) { _, enabled in
-                                    let ok = LoginItemHelper.setEnabled(enabled)
-                                    if !ok {
-                                        // Roll back the UI toggle if the
-                                        // system rejected the request
-                                        // (e.g. running from DerivedData).
-                                        DispatchQueue.main.async {
-                                            launchAtLogin = !enabled
-                                        }
-                                    }
-                                }
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "Display",
-                            subtitle: "Which screen the notch lives on"
-                        ) {
-                            displayMenu
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "Accessibility",
-                            subtitle: accessibilityGranted
-                                ? "Granted — tab switching and terminal detection enabled"
-                                : "Required for switching terminal tabs and detecting foreground apps"
-                        ) {
-                            if accessibilityGranted {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.green)
-                            } else {
-                                actionButton("Grant Access") {
-                                    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-                                    _ = AXIsProcessTrustedWithOptions(opts)
-                                    // Poll briefly — the user may grant instantly
-                                    // or the system settings sheet may appear.
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                        accessibilityGranted = AXIsProcessTrusted()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    sectionTitle("Behaviour")
-                    settingsCard {
-                        settingsRow(
-                            title: "Smart suppression",
-                            subtitle: "Don't auto-expand when the agent's terminal is already in focus"
-                        ) {
-                            rightSwitch($smartSuppression)
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "Show usage limits",
-                            subtitle: "Display subscription usage limits in the notch panel header"
-                        ) {
-                            rightSwitch($showUsageLimits)
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "Detailed usage display",
-                            subtitle: "Show 5h and weekly percentages next to icons, otherwise icons only"
-                        ) {
-                            rightSwitch($showUsageInline)
-                        }
-                        rowDivider
-                        settingsRow(
-                            title: "Hide in fullscreen",
-                            subtitle: "Hide Coder Island when any app is in fullscreen mode"
-                        ) {
-                            rightSwitch($hideInFullscreen)
-                                .onChange(of: hideInFullscreen) { _, _ in
-                                    NotificationCenter.default.post(
-                                        name: .coderIslandReevaluateFullscreen,
-                                        object: nil
-                                    )
-                                }
-                        }
-                    }
-
-                    #if DEBUG
-                    animationPreviewSection
-                    #endif
-
-                }
-                .padding(24)
+        var displayName: String {
+            switch self {
+            case .general: return "General"
+            case .system:  return "System"
+            case .sound:   return "Sound"
+            #if DEBUG
+            case .debug:   return "Debug"
+            #endif
+            case .about:   return "About"
             }
         }
-        .frame(width: 760, height: 680)
+
+        var icon: String {
+            switch self {
+            case .general: return "gearshape.fill"
+            case .system:  return "desktopcomputer"
+            case .sound:   return "speaker.wave.2.fill"
+            #if DEBUG
+            case .debug:   return "ladybug.fill"
+            #endif
+            case .about:   return "info.circle.fill"
+            }
+        }
+
+        /// Colored badge background for the sidebar icon (Vibe Island style).
+        var iconColor: Color {
+            switch self {
+            case .general: return Color(red: 0.40, green: 0.40, blue: 0.45)
+            case .system:  return Color(red: 0.55, green: 0.40, blue: 0.85)
+            case .sound:   return Color(red: 0.20, green: 0.65, blue: 0.40)
+            #if DEBUG
+            case .debug:   return Color(red: 0.85, green: 0.45, blue: 0.30)
+            #endif
+            case .about:   return Color(red: 0.30, green: 0.55, blue: 0.95)
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            // Sidebar with grouped sections and colored icon badges
+            // (Vibe Island reference). Main entries first, then a
+            // separate Debug group when DEBUG is on.
+            List(selection: $selectedCategory) {
+                Section {
+                    ForEach(mainSidebarItems) { sidebarRow(for: $0) }
+                }
+                #if DEBUG
+                Section("Developer") {
+                    sidebarRow(for: .debug)
+                }
+                #endif
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+        } detail: {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        // Page title ("General" / "Sound" / etc.) at
+                        // the top of every tab, matching the Vibe
+                        // Island layout. The big pixel wordmark only
+                        // appears under the About tab so it isn't
+                        // repeated on every page.
+                        Text(selectedCategory.displayName)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            // Extra top padding pushes the H1 below the
+                            // traffic-light row; bottom padding gives the
+                            // first section card breathing room.
+                            .padding(.top, 12)
+                            .padding(.bottom, 8)
+
+                        switch selectedCategory {
+                        case .general: generalTab
+                        case .system:  systemTab
+                        case .sound:   soundTab
+                        #if DEBUG
+                        case .debug:   debugTab
+                        #endif
+                        case .about:   aboutTab
+                        }
+                    }
+                    // Smaller top padding (12pt) sits the H1 right under
+                    // the traffic lights without the ~28pt safe-area gap
+                    // SwiftUI reserves for transparent title bars by
+                    // default. ignoresSafeArea below lets the scroll
+                    // content reach all the way up.
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
+                }
+                .ignoresSafeArea(.container, edges: .top)
+            }
+        }
+        .frame(minWidth: 860, idealWidth: 920, minHeight: 620, idealHeight: 700)
         .preferredColorScheme(.dark)
         .onAppear {
             refreshCustomSoundNames()
@@ -240,10 +184,229 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Sidebar helpers
+
+    /// Main sidebar entries (everything except the Debug developer
+    /// section, which lives in its own gated group).
+    private var mainSidebarItems: [SettingsCategory] {
+        [.general, .system, .sound, .about]
+    }
+
+    /// Vibe Island-style sidebar row: colored badge + label.
+    @ViewBuilder
+    private func sidebarRow(for cat: SettingsCategory) -> some View {
+        Label {
+            Text(cat.displayName)
+                .font(.system(size: 13, weight: .medium))
+        } icon: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(cat.iconColor)
+                Image(systemName: cat.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 20, height: 20)
+        }
+        .tag(cat)
+    }
+
+    // MARK: - Tab content
+
+    @ViewBuilder
+    private var generalTab: some View {
+        sectionTitle("Agent Monitoring")
+        settingsCard {
+            settingsRow(
+                title: "Claude Code",
+                subtitle: "Monitor Claude Code sessions"
+            ) {
+                rightSwitch($monitorClaudeCode)
+            }
+            rowDivider
+            settingsRow(
+                title: "OpenAI Codex CLI",
+                subtitle: "Monitor Codex sessions"
+            ) {
+                rightSwitch($monitorCodex)
+            }
+        }
+
+        sectionTitle("Interaction")
+        settingsCard {
+            settingsRow(
+                title: "Answer questions & permissions in Coder Island",
+                subtitle: "Install AskUserQuestion + permission hooks. Requires restarting Claude Code sessions."
+            ) {
+                rightSwitch($askHooksEnabled)
+                    .onChange(of: askHooksEnabled) { _, enabled in
+                        if enabled {
+                            HookInstaller.shared.install()
+                        } else {
+                            HookInstaller.shared.uninstall()
+                        }
+                    }
+            }
+        }
+
+        sectionTitle("Behaviour")
+        settingsCard {
+            settingsRow(
+                title: "Smart suppression",
+                subtitle: "Don't auto-expand when the agent's terminal is already in focus"
+            ) {
+                rightSwitch($smartSuppression)
+            }
+            rowDivider
+            settingsRow(
+                title: "Show usage limits",
+                subtitle: "Display subscription usage limits in the notch panel header"
+            ) {
+                rightSwitch($showUsageLimits)
+            }
+            rowDivider
+            settingsRow(
+                title: "Detailed usage display",
+                subtitle: "Show 5h and weekly percentages next to icons, otherwise icons only"
+            ) {
+                rightSwitch($showUsageInline)
+            }
+            rowDivider
+            settingsRow(
+                title: "Hide in fullscreen",
+                subtitle: "Hide Coder Island when any app is in fullscreen mode"
+            ) {
+                rightSwitch($hideInFullscreen)
+                    .onChange(of: hideInFullscreen) { _, _ in
+                        NotificationCenter.default.post(
+                            name: .coderIslandReevaluateFullscreen,
+                            object: nil
+                        )
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var systemTab: some View {
+        // OS-level integration: launch behavior, display target,
+        // accessibility permission. Promoted out of General into its
+        // own tab now that there are 3 distinct rows.
+        settingsCard {
+            settingsRow(
+                title: "Launch at login",
+                subtitle: "Start Coder Island automatically after login"
+            ) {
+                rightSwitch($launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, enabled in
+                        let ok = LoginItemHelper.setEnabled(enabled)
+                        if !ok {
+                            DispatchQueue.main.async {
+                                launchAtLogin = !enabled
+                            }
+                        }
+                    }
+            }
+            rowDivider
+            settingsRow(
+                title: "Display",
+                subtitle: "Which screen the notch lives on"
+            ) {
+                displayMenu
+            }
+            rowDivider
+            settingsRow(
+                title: "Accessibility",
+                subtitle: accessibilityGranted
+                    ? "Granted — tab switching and terminal detection enabled"
+                    : "Required for switching terminal tabs and detecting foreground apps"
+            ) {
+                if accessibilityGranted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.green)
+                } else {
+                    actionButton("Grant Access") {
+                        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+                        _ = AXIsProcessTrustedWithOptions(opts)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            accessibilityGranted = AXIsProcessTrusted()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var soundTab: some View {
+        // No sectionTitle("Sound") — the page H1 "Sound" already
+        // labels this tab; a second header right under it would
+        // duplicate. Other tabs (General, Debug) keep their inner
+        // section headers because they're true sub-categories.
+        settingsCard {
+            settingsRow(
+                title: "Sound effects",
+                subtitle: "Play sounds for agent lifecycle events."
+            ) {
+                rightSwitch($soundEnabled)
+            }
+            rowDivider
+            settingsRow(
+                title: "Sound pack",
+                subtitle: activePackDescription
+            ) {
+                packMenu.disabled(!soundEnabled)
+            }
+            ForEach(SoundCategory.allCases.filter { $0.isActiveInV1 }, id: \.self) { category in
+                rowDivider
+                categoryRow(category)
+            }
+        }
+
+        if !soundStatus.isEmpty {
+            Text(soundStatus)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.65))
+                .padding(.horizontal, 4)
+        }
+    }
+
+    #if DEBUG
+    @ViewBuilder
+    private var debugTab: some View {
+        simulatedNotchSection
+        animationPreviewSection
+    }
+    #endif
+
+    @ViewBuilder
+    private var aboutTab: some View {
+        // Pixel wordmark + version + source link.
+        appHeader
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 24)
+
+        settingsCard {
+            settingsRow(
+                title: "Version",
+                subtitle: "Currently installed build"
+            ) {
+                Text("v\(appVersion)")
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+        }
+    }
+
     private func sectionTitle(_ text: String) -> some View {
+        // Sub-section header within a tab. Vibe Island-style:
+        // mixed-case medium-bold, dim white, no uppercase/tracking.
+        // Smaller than the page H1 (18pt) so hierarchy reads cleanly.
         Text(text)
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundColor(.white.opacity(0.95))
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.white.opacity(0.8))
+            .padding(.top, 6)
     }
 
     private var appHeader: some View {
@@ -274,11 +437,6 @@ struct SettingsView: View {
                     cell: 3,
                     italic: true
                 )
-                Text("v\(appVersion)  //  SYSTEM ONLINE")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .tracking(1.5)
-                    .foregroundColor(.white.opacity(0.55))
-                    .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity)
@@ -314,20 +472,23 @@ struct SettingsView: View {
         subtitle: String,
         @ViewBuilder accessory: () -> Accessory
     ) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.white.opacity(0.95))
                 Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.62))
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.55))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 16)
+            Spacer(minLength: 14)
             accessory()
         }
-        .padding(.horizontal, 18)
+        // Bumped vertical padding so the title/subtitle pair has room
+        // to breathe and the toggle/menu sits visually centered with
+        // the text block.
+        .padding(.horizontal, 16)
         .padding(.vertical, 14)
     }
 
@@ -633,6 +794,65 @@ struct SettingsView: View {
         }
         categoryOverrideNames = names
         activePackId = SoundManager.shared.activePackId
+    }
+
+    // MARK: - Debug: simulate hardware notch (DEBUG builds only)
+
+    /// Bound to UserDefaults key `debug.simulatedNotchWidth`. Non-zero
+    /// value forces `NotchWindow.resolveNotchGeometry` to report a
+    /// notch of that width, letting non-notch machines preview the
+    /// notch-wrapped compact bar layout.
+    @AppStorage("debug.simulatedNotchWidth") private var simulatedNotchWidth: Double = 0
+
+    @ViewBuilder
+    private var simulatedNotchSection: some View {
+        sectionTitle("Debug: Simulate notch")
+        settingsCard {
+            settingsRow(
+                title: "Simulate hardware notch",
+                subtitle: "Override the notch geometry for layout testing."
+            ) {
+                dropdownMenu(currentLabel: simulatedNotchLabel) {
+                    // 0 = Native (use real hardware geometry)
+                    // -1 = Off (force no notch even on notch hardware)
+                    // 180 = MBP 14"-style notch
+                    // 200 = MBP 16"-style notch
+                    ForEach([(0.0, "本机 (use hardware)"),
+                             (-1.0, "Off"),
+                             (180.0, "14\""),
+                             (200.0, "16\"")], id: \.0) { value, label in
+                        Button {
+                            simulatedNotchWidth = value
+                            // Trigger a live geometry recompute so the
+                            // compact bar width + hasNotch flag reflect
+                            // the new choice without a relaunch.
+                            NotificationCenter.default.post(
+                                name: .coderIslandReevaluateDisplay,
+                                object: nil
+                            )
+                        } label: {
+                            HStack {
+                                Text(label)
+                                if simulatedNotchWidth == value {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var simulatedNotchLabel: String {
+        switch simulatedNotchWidth {
+        case 0:     return "本机 (use hardware)"
+        case -1:    return "Off"
+        case 180:   return "14\""
+        case 200:   return "16\""
+        default:    return "\(Int(simulatedNotchWidth))pt"
+        }
     }
 
     // MARK: - Animations Preview (dev tool, DEBUG builds only)

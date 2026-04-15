@@ -20,6 +20,14 @@ struct IslandView: View {
     @State private var usagePopoverDismissTimer: Timer?
     @ObservedObject private var usageManager: UsageManager = .shared
     @AppStorage("soundEnabled") private var soundEnabled: Bool = true
+    #if DEBUG
+    /// Live-bound to the same UserDefault the Settings toggle writes.
+    /// When > 0, the overlay draws a fake camera cutout at this width.
+    @AppStorage("debug.simulatedNotchWidth") private var simulatedNotchWidth: Double = 0
+    /// Matches the height NotchWindow.resolveNotchGeometry uses (32pt
+    /// ≈ MacBook Pro 14"/16" notch height).
+    private let simulatedNotchHeight: CGFloat = 32
+    #endif
 
     private let barColor = Color.black
     private let usagePopoverShowDelay: TimeInterval = 0.15
@@ -94,6 +102,22 @@ struct IslandView: View {
         )
         // Don't pad top — stays flush with screen edge
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #if DEBUG
+        // Simulated hardware notch — visible only when the debug
+        // "Simulate notch" setting is on. Renders a solid black
+        // rectangle at the top-center at the configured width and
+        // height so developers on non-notch Macs can see how the
+        // compact bar wraps around a camera cutout. Placed as an
+        // overlay so it sits above the bar and animation layers.
+        .overlay(alignment: .top) {
+            if simulatedNotchWidth > 0 {
+                Rectangle()
+                    .fill(Color.black)
+                    .frame(width: simulatedNotchWidth, height: simulatedNotchHeight)
+                    .allowsHitTesting(false)
+            }
+        }
+        #endif
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.isExpanded)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.expandedContentHeight)
         .onChange(of: viewModel.isExpanded) { expanded in
@@ -189,19 +213,20 @@ struct IslandView: View {
                     hasPendingPermission: displayHasPermission
                 )
 
-                // Task name: intrinsic width up to a hard cap. Without the
-                // cap, a very long session title (e.g. a Codex thread named
-                // after the user's whole prompt) would push the subtitle
-                // and right-side indicator off the visible bar. maxWidth
-                // keeps the name within a predictable slot; layoutPriority
-                // lets it win space over the subtitle when both are present.
-                Text(displaySession.taskName)
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundColor(displaySession.status.isRecentlyFinished ? .gray : .white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 160, alignment: .leading)
-                    .layoutPriority(1)
+                // Task name: only show on non-notch Macs. On notch Macs
+                // the name would render behind the camera cutout and be
+                // invisible anyway; suppressing it lets the HStack's
+                // Spacer pull the right-side badge all the way to the
+                // right shoulder instead of crowding near the cutout.
+                if !viewModel.hasNotch {
+                    Text(displaySession.taskName)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundColor(displaySession.status.isRecentlyFinished ? .gray : .white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 160, alignment: .leading)
+                        .layoutPriority(1)
+                }
 
                 // Subtitle: hidden on notch Macs (it would render behind the
                 // camera cutout anyway). On non-notch Macs it expands to fill

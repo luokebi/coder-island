@@ -137,15 +137,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Standard macOS settings window: titled + closable + miniaturizable
+        // + resizable so users get the full traffic-light triplet and can
+        // resize the sidebar layout. Title bar is shown (no longer
+        // transparent) because the NavigationSplitView sidebar already
+        // owns the leading edge — overlapping a translucent title bar
+        // looked muddy.
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        window.title = "Coder Island Settings"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = NSColor.black
         window.contentView = NSHostingView(rootView: SettingsView())

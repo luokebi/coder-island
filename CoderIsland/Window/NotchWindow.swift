@@ -96,6 +96,42 @@ class NotchWindow: NSPanel {
     /// makes the Settings dropdown reflect the new state and prevents
     /// the notch from teleporting back to the stale choice if the
     /// display is later reconnected — the user has to opt in again.
+    /// Computed notch geometry for the given screen, with a DEBUG-only
+    /// override so developers can preview different notch states.
+    ///
+    /// UserDefaults key `debug.simulatedNotchWidth` semantics:
+    ///   ==  0  → Native: detect from `safeAreaInsets.top` (default).
+    ///   == -1  → Off: force no notch even on notch hardware (useful for
+    ///            previewing the no-notch layout on a notch MacBook).
+    ///   >  0   → Simulate: force a notch of that width regardless of
+    ///            actual hardware (useful on non-notch displays).
+    /// Effect takes hold after relaunch or the next screen-change event.
+    static func resolveNotchGeometry(screen: NSScreen) -> (hasNotch: Bool, width: CGFloat, height: CGFloat) {
+        #if DEBUG
+        let simulated = CGFloat(UserDefaults.standard.double(forKey: "debug.simulatedNotchWidth"))
+        if simulated < 0 {
+            // Forced "Off" — pretend the screen has no hardware notch.
+            return (false, 0, 0)
+        }
+        if simulated > 0 {
+            // 32pt matches the safeAreaInsets.top of real MacBook Pro 14"/16" notches.
+            return (true, simulated, 32)
+        }
+        #endif
+        guard screen.safeAreaInsets.top > 0 else {
+            return (false, 0, 0)
+        }
+        let height = screen.safeAreaInsets.top
+        let width: CGFloat = {
+            if let leftArea = screen.auxiliaryTopLeftArea,
+               let rightArea = screen.auxiliaryTopRightArea {
+                return rightArea.minX - leftArea.maxX
+            }
+            return 180 // Fallback: typical MacBook notch width in points
+        }()
+        return (true, width, height)
+    }
+
     static func preferredScreen() -> NSScreen {
         let stored = UserDefaults.standard.integer(forKey: preferredDisplayKey)
         if stored != 0 {
@@ -136,34 +172,45 @@ class NotchWindow: NSPanel {
     /// the move.
     func moveToCurrentlyPreferredScreen() {
         let screen = NotchWindow.preferredScreen()
-        // No-op if we're already on the right screen.
-        if let current = self.screen, current == screen {
-            return
-        }
+        // Skip the screen-move frame work if we're already there, but
+        // still rerun the geometry step — the simulated-notch dropdown
+        // triggers this code path without actually changing screens,
+        // and the viewModel.hasNotch / compactBarWidth still need to
+        // refresh.
+        let needsFrameMove = self.screen != screen
+        reconfigureForScreen(screen, moveFrame: needsFrameMove)
+    }
 
-        // Recompute the per-screen notch geometry. Mirrors the same
-        // logic init() uses: notch screens get a bar sized to clear
-        // the camera cutout; non-notch screens use the class default
-        // (which is wider than notch ones because nothing constrains
-        // it).
-        let hasNotch = screen.safeAreaInsets.top > 0
-        var notchWidth: CGFloat = 0
-        var notchHeight: CGFloat = 0
+    /// Recomputes notch/compact-bar geometry for the given screen and
+    /// (optionally) repositions the window. Callable by the
+    /// screen-change observers AND by the simulated-notch dropdown
+    /// without depending on a screen actually swapping.
+    func reconfigureForScreen(_ screen: NSScreen, moveFrame: Bool) {
+        let resolved = NotchWindow.resolveNotchGeometry(screen: screen)
+        let hasNotch = resolved.hasNotch
+        let notchWidth = resolved.width
+        let notchHeight = resolved.height
+
         if hasNotch {
-            notchHeight = screen.safeAreaInsets.top
-            if let leftArea = screen.auxiliaryTopLeftArea,
-               let rightArea = screen.auxiliaryTopRightArea {
-                notchWidth = rightArea.minX - leftArea.maxX
-            } else {
-                notchWidth = 180
-            }
-            compactBarWidth = max(239, notchWidth + 49)
+            // Reserve ~40pt of visible bar on EACH shoulder so the sprite
+            // (16pt) + running comet trail (10pt) fit completely in the left
+            // shoulder without being eaten by the camera cutout.
+            compactBarWidth = max(239, notchWidth + 80)
         } else {
             compactBarWidth = 300
         }
 
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
-        let barHeight = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
+        let barHeight = hasNotch ? max(notchHeight, menuBarHeight) : menuBarHeight
+
+        // These properties on NotchWindowViewModel are plain `var`, not
+        // @Published, so mutating them doesn't trigger SwiftUI to
+        // re-render. The normal screen-change path got lucky because
+        // setFrame() forces a layout pass that kicks the hosting view.
+        // When we call this with moveFrame=false (simulated notch), we
+        // must send objectWillChange manually to get the compact bar
+        // to redraw at the new width.
+        viewModel.objectWillChange.send()
 
         viewModel.notchWidth = notchWidth
         viewModel.notchHeight = notchHeight
@@ -173,20 +220,20 @@ class NotchWindow: NSPanel {
         viewModel.panelWidth = panelWidth
         viewModel.maxExpandedHeight = screen.frame.height * 0.7 - IslandView.inset
 
-        // Fixed-size window — always at max expanded dimensions.
-        let inset = IslandView.inset
-        let maxWidth = panelWidth + inset * 2
-        let maxHeight = screen.frame.height * 0.7
-        let x = screen.frame.midX - maxWidth / 2
-        let y = screen.frame.maxY - maxHeight
-        let newFrame = NSRect(x: x, y: y, width: maxWidth, height: maxHeight)
-        setFrame(newFrame, display: true, animate: false)
+        if moveFrame {
+            let inset = IslandView.inset
+            let maxWidth = panelWidth + inset * 2
+            let maxHeight = screen.frame.height * 0.7
+            let x = screen.frame.midX - maxWidth / 2
+            let y = screen.frame.maxY - maxHeight
+            let newFrame = NSRect(x: x, y: y, width: maxWidth, height: maxHeight)
+            setFrame(newFrame, display: true, animate: false)
+        }
 
         if viewModel.isExpanded {
             updateExpandedContentHeight()
         }
 
-        // Re-evaluate fullscreen hide for the new screen.
         applyFullscreenHidingIfNeeded()
     }
 
@@ -197,27 +244,23 @@ class NotchWindow: NSPanel {
 
         let screen = NotchWindow.preferredScreen()
         let screenFrame = screen.frame
-        let hasNotch = screen.safeAreaInsets.top > 0
+        let resolved = NotchWindow.resolveNotchGeometry(screen: screen)
+        let hasNotch = resolved.hasNotch
+        let notchWidth = resolved.width
+        let notchHeight = resolved.height
 
-        // Calculate notch camera region first so compact width can adapt on notch Macs.
-        var notchWidth: CGFloat = 0
-        var notchHeight: CGFloat = 0
         if hasNotch {
-            notchHeight = screen.safeAreaInsets.top
-            if let leftArea = screen.auxiliaryTopLeftArea,
-               let rightArea = screen.auxiliaryTopRightArea {
-                notchWidth = rightArea.minX - leftArea.maxX
-            } else {
-                notchWidth = 180  // Fallback: typical MacBook notch width in points
-            }
-
             // Use notch width as the center text lane baseline, plus a little
             // room on both sides for the left icon and right badge.
-            compactBarWidth = max(239, notchWidth + 49)
+            // Reserve ~40pt of visible bar on EACH shoulder so the sprite
+// (16pt) + running comet trail (10pt) fit completely in the left
+// shoulder without being eaten by the camera cutout. Previous
+// +49pt only gave ~19pt per side and clipped the comet.
+compactBarWidth = max(239, notchWidth + 80)
         }
 
         let menuBarHeight = screenFrame.maxY - screen.visibleFrame.maxY
-        let barHeight = hasNotch ? max(screen.safeAreaInsets.top, menuBarHeight) : menuBarHeight
+        let barHeight = hasNotch ? max(notchHeight, menuBarHeight) : menuBarHeight
 
         // Fixed-size window: always at max expanded size. All expand/collapse
         // animation is driven by SwiftUI frame changes, not window resize.
