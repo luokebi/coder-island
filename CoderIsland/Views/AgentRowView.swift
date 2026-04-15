@@ -197,8 +197,14 @@ struct AgentRowView: View {
 /// CometTrail; other statuses use static pixel icons (! ? cursor blink).
 /// Shared between AgentRowView (expanded panel row) and NotchView's
 /// compact bar so the two surfaces stay visually consistent.
+///
+/// IMPORTANT: `session` must be @ObservedObject (not `let`) so this view
+/// subscribes to the session's @Published properties. Without that,
+/// SwiftUI sees the same AgentSession reference on re-render and skips
+/// body invocation — leaving the old branch (e.g. CometTrail from a
+/// prior .running) painted after status flips.
 struct SessionStatusIndicator: View {
-    let session: AgentSession
+    @ObservedObject var session: AgentSession
     let hasPendingPermission: Bool
     var isDimmed: Bool = false
 
