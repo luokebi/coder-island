@@ -91,9 +91,12 @@ final class SoundPackPlayer {
         guard isEngineStarted else { return false }
         guard let node = pickFreeNode() else { return false }
         node.volume = volume
-        node.scheduleBuffer(buffer, at: nil, options: [.interrupts]) { [weak node] in
-            node?.stop()
-        }
+        // Important: do NOT call node.stop() from the completion handler.
+        // The handler runs on AVAudioPlayerNodeImpl.CompletionHandlerQueue
+        // and stop() internally dispatches sync to that same queue, causing
+        // a libdispatch deadlock (BUG IN CLIENT OF LIBDISPATCH). The node
+        // is already idle once the buffer finishes playing — no action needed.
+        node.scheduleBuffer(buffer, at: nil, options: [.interrupts], completionHandler: nil)
         node.play()
         return true
     }

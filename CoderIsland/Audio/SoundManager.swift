@@ -27,6 +27,18 @@ class SoundManager {
             case .appStarted:   return "appStarted"
             }
         }
+
+        /// Legacy per-event UserDefaults key used by the existing Settings UI.
+        /// The new Category-based API reads this so toggling a legacy checkbox
+        /// still takes effect until Phase 3 migrates Settings.
+        var legacyEnabledDefaultsKey: String {
+            switch self {
+            case .permission:   return "soundPermissionEnabled"
+            case .ask:          return "soundAskEnabled"
+            case .taskComplete: return "soundTaskDoneEnabled"
+            case .appStarted:   return "soundAppStartedEnabled"
+            }
+        }
     }
 
     enum Preset: String, CaseIterable, Identifiable {
@@ -187,6 +199,49 @@ class SoundManager {
         playEvent(event, key: "preview.\(event.rawValue)", fallback: fallbackNames(for: event), bypassDebounce: true)
     }
 
+    // MARK: - Category-based API (Phase 2+)
+
+    /// Plays a sound for the given category, honoring the per-category enable
+    /// flag in UserDefaults. Legacy (`Event`) trigger points still call the
+    /// original play* methods; this entry point is for new code and for the
+    /// Settings UI preview.
+    ///
+    /// NOTE: v1 has no trigger points calling this directly for the reserved
+    /// categories (sessionStart, taskError, taskAcknowledge, userSpam,
+    /// resourceLimit, remoteConnected). When those get wired up later, they
+    /// can call `play(.xxx)` and nothing else in this file needs to change.
+    func play(_ category: SoundCategory, context: String = "") {
+        guard soundEnabled else { return }
+        guard isEnabled(category) else { return }
+        Self.traceSoundPlay("category.\(category.rawValue)\(context.isEmpty ? "" : " \(context)")")
+        playCategory(category, key: "cat.\(category.rawValue)", bypassDebounce: false)
+    }
+
+    /// Preview variant: ignores cooldown and enable flag, so the user can
+    /// audition even muted categories from Settings.
+    func playPreview(for category: SoundCategory) {
+        playCategory(category, key: "preview.cat.\(category.rawValue)", bypassDebounce: true)
+    }
+
+    // MARK: - Per-category enable / override
+
+    func isEnabled(_ category: SoundCategory) -> Bool {
+        // Legacy keys win if present (so flipping a toggle in the old UI
+        // still has effect until Phase 3 migrates to the new key).
+        if let legacyEvent = category.legacyEvent,
+           let legacy = UserDefaults.standard.object(forKey: legacyEvent.legacyEnabledDefaultsKey) as? Bool {
+            return legacy
+        }
+        return UserDefaults.standard.object(forKey: category.enabledDefaultsKey) as? Bool ?? true
+    }
+
+    func setEnabled(_ category: SoundCategory, enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: category.enabledDefaultsKey)
+        if let legacyEvent = category.legacyEvent {
+            UserDefaults.standard.set(enabled, forKey: legacyEvent.legacyEnabledDefaultsKey)
+        }
+    }
+
     // MARK: - Core resolution chain
 
     /// Resolution order:
@@ -234,6 +289,49 @@ class SoundManager {
         case .taskComplete: return ["Glass", "Hero", "Ping"]
         case .appStarted:   return ["Glass", "Hero", "Funk"]
         }
+    }
+
+    /// Category-level playback with the full resolution chain:
+    ///   1. per-category override file (new key `sound.category.<name>.overrideFile`
+    ///      OR legacy `soundCustomName.<event>` file if present)
+    ///   2. active pack entry for category.manifestKey
+    ///   3. category.systemSoundFallback
+    ///   4. NSSound.beep()
+    private func playCategory(_ category: SoundCategory, key: String, bypassDebounce: Bool) {
+        if !bypassDebounce {
+            let now = Date()
+            if let last = lastPlayedAt[key], now.timeIntervalSince(last) < minInterval {
+                return
+            }
+            lastPlayedAt[key] = now
+        }
+
+        // 1. New-style override file
+        if let overridePath = UserDefaults.standard.string(forKey: category.overrideFileDefaultsKey),
+           !overridePath.isEmpty {
+            let url = URL(fileURLWithPath: overridePath)
+            if SoundPackPlayer.shared.play(source: .file(url)) { return }
+        }
+        // 1b. Legacy per-event override file (if this category maps to one)
+        if let legacyEvent = category.legacyEvent,
+           let url = customSoundURL(for: legacyEvent),
+           SoundPackPlayer.shared.play(source: .file(url)) {
+            return
+        }
+
+        // 2. Active pack
+        if let pack = activePack,
+           SoundPackPlayer.shared.play(pack: pack, categoryId: category.manifestKey) {
+            return
+        }
+
+        // 3. System named fallback
+        for name in category.systemSoundFallback {
+            if SoundPackPlayer.shared.play(source: .systemNamed(name)) { return }
+        }
+
+        // 4. Beep
+        SoundPackPlayer.shared.play(source: .beep)
     }
 
     // MARK: - Legacy custom-file helpers
