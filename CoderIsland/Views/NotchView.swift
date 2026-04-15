@@ -135,6 +135,16 @@ struct IslandView: View {
             hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { _ in
                 // Don't collapse if there's a pending ask question
                 let hasAsk = agentManager.sessions.contains { $0.askQuestion != nil }
+                // Don't collapse if the cursor is still over the visible
+                // panel. `.onHover(false)` can fire spuriously on the
+                // compact view when `.allowsHitTesting` flips off during
+                // expand, and the expanded view's `.onHover(true)` doesn't
+                // fire when the mouse is already inside it at appear-time
+                // — checking the OS cursor position is the reliable signal.
+                // Without this, hovering the empty-state compact bar would
+                // oscillate: expand → spurious hover(false) → collapse →
+                // re-expand (via the onStateChange recovery) → repeat.
+                if viewModel.isCursorOverVisibleRect?() == true { return }
                 if viewModel.isExpanded && !hasAsk {
                     viewModel.collapse()
                 }

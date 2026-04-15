@@ -315,6 +315,17 @@ class NotchWindow: NSPanel {
             self?.viewModel.dismissPendingsForResolvedSession(sessionId: sessionId)
         }
 
+        // Let the view-model ask whether the cursor is still over the
+        // currently-visible area (see docs on the property).
+        viewModel.isCursorOverVisibleRect = { [weak self] in
+            guard let self = self else { return false }
+            let mouse = NSEvent.mouseLocation
+            let rect = self.viewModel.isExpanded
+                ? self.currentExpandedRectInScreen()
+                : self.currentCompactBarRectInScreen()
+            return rect.contains(mouse)
+        }
+
         // Watch for expand/collapse — measure content so SwiftUI can
         // animate the frame. No window resize needed (fixed-size window).
         viewModel.onStateChange = { [weak self] expanded in
@@ -640,6 +651,15 @@ class NotchWindowViewModel: ObservableObject {
 
     var hasNotch: Bool { notchHeight > 0 }
     var onStateChange: ((Bool) -> Void)?
+    /// Returns true if the OS cursor is currently inside the visible
+    /// content area (compact bar rect when collapsed, expanded panel
+    /// rect when expanded). Set by NotchWindow. Used to suppress
+    /// spurious collapses caused by `.onHover(false)` firing on the
+    /// compact view when `.allowsHitTesting` flips off during expand
+    /// — SwiftUI's `.onHover` on the newly-appearing expanded view
+    /// doesn't fire `true` if the mouse is already inside it, so we
+    /// can't rely on hover alone to know the cursor is still there.
+    var isCursorOverVisibleRect: (() -> Bool)?
 
     /// Shared SwiftUI animation used for content changes while expanded.
     static let expandAnimation: Animation = .spring(response: 0.4, dampingFraction: 0.85)
