@@ -1,2 +1,16 @@
 build/
 test_warp_accessibility
+
+# Xcode derived data — machine-specific caches and build logs from
+# local xcodebuild runs. Safe to regenerate; must never be committed.
+.derived-data/
+.derived-data-release/
+DerivedData/
+
+# Xcode user-level state inside projects (schemes, breakpoints, window
+# layouts). Keeps the project file clean across machines.
+xcuserdata/
+*.xcuserstate
+
+# macOS noise
+.DS_Store
