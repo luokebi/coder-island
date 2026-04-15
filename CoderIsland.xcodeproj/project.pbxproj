@@ -37,6 +37,11 @@
 		A100001B0000000000000001 /* CodexOAuthUsageFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001B0000000000000001; };
 		A100001C0000000000000001 /* LoginItemHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001C0000000000000001; };
 		A10000200000000000000001 /* HookServerSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000200000000000000001; };
+		A10000210000000000000001 /* SoundPackManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000210000000000000002; };
+		A10000220000000000000001 /* SoundPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000220000000000000002; };
+		A10000230000000000000001 /* SoundPackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000230000000000000002; };
+		A10000240000000000000001 /* SoundPackPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000240000000000000002; };
+		A10000250000000000000001 /* SoundPacks in Resources */ = {isa = PBXBuildFile; fileRef = A20000250000000000000002; };
 		B10000010000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000010000000000000001; };
 		B10000020000000000000001 /* coder-island-hook in Copy Helpers */ = {isa = PBXBuildFile; fileRef = B20000020000000000000001; };
 /* End PBXBuildFile section */
@@ -75,6 +80,11 @@
 		A20000140000000000000002 /* mario_complete.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_complete.mp3; sourceTree = "<group>"; };
 		A200001D0000000000000002 /* mario_start.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = mario_start.mp3; sourceTree = "<group>"; };
 		A20000200000000000000001 /* HookServerSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookServerSocket.swift; sourceTree = "<group>"; };
+		A20000210000000000000002 /* SoundPackManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPackManifest.swift; sourceTree = "<group>"; };
+		A20000220000000000000002 /* SoundPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPack.swift; sourceTree = "<group>"; };
+		A20000230000000000000002 /* SoundPackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPackStore.swift; sourceTree = "<group>"; };
+		A20000240000000000000002 /* SoundPackPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPackPlayer.swift; sourceTree = "<group>"; };
+		A20000250000000000000002 /* SoundPacks */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SoundPacks; path = Resources/SoundPacks; sourceTree = "<group>"; };
 		B20000010000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B20000020000000000000001 /* coder-island-hook */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "coder-island-hook"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -128,6 +138,7 @@
 				A200000E0000000000000001 /* Entitlements.entitlements */,
 				A200000C0000000000000001 /* Assets.xcassets */,
 				A40000090000000000000001 /* sounds */,
+				A20000250000000000000002 /* SoundPacks */,
 				A40000030000000000000001 /* Window */,
 				A40000040000000000000001 /* Views */,
 				A40000050000000000000001 /* Agents */,
@@ -187,8 +198,20 @@
 			isa = PBXGroup;
 			children = (
 				A200000B0000000000000001 /* SoundManager.swift */,
+				A400000C0000000000000001 /* SoundPack */,
 			);
 			path = Audio;
+			sourceTree = "<group>";
+		};
+		A400000C0000000000000001 /* SoundPack */ = {
+			isa = PBXGroup;
+			children = (
+				A20000210000000000000002 /* SoundPackManifest.swift */,
+				A20000220000000000000002 /* SoundPack.swift */,
+				A20000230000000000000002 /* SoundPackStore.swift */,
+				A20000240000000000000002 /* SoundPackPlayer.swift */,
+			);
+			path = SoundPack;
 			sourceTree = "<group>";
 		};
 		A400000B0000000000000001 /* LoginItem */ = {
@@ -335,6 +358,7 @@
 				A10000130000000000000001 /* mario_question.mp3 in Resources */,
 				A10000140000000000000001 /* mario_complete.mp3 in Resources */,
 				A100001D0000000000000001 /* mario_start.mp3 in Resources */,
+				A10000250000000000000001 /* SoundPacks in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -370,6 +394,10 @@
 				A10000200000000000000001 /* HookServerSocket.swift in Sources */,
 				A10000100000000000000001 /* HookInstaller.swift in Sources */,
 				A10000110000000000000001 /* PermissionView.swift in Sources */,
+				A10000210000000000000001 /* SoundPackManifest.swift in Sources */,
+				A10000220000000000000001 /* SoundPack.swift in Sources */,
+				A10000230000000000000001 /* SoundPackStore.swift in Sources */,
+				A10000240000000000000001 /* SoundPackPlayer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
