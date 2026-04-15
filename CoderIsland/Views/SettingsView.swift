@@ -192,6 +192,8 @@ struct SettingsView: View {
                         }
                     }
 
+                    animationPreviewSection
+
                 }
                 .padding(24)
             }
@@ -629,6 +631,235 @@ struct SettingsView: View {
         }
         categoryOverrideNames = names
         activePackId = SoundManager.shared.activePackId
+    }
+
+    // MARK: - Animations Preview (dev tool)
+
+    /// A bottom panel that renders every pixel animation we ship, side by
+    /// side, so we can eyeball tweaks without waiting for a real trigger.
+    /// Star burst is tap-to-fire so you can audition the overlay rhythm.
+    @ViewBuilder
+    private var animationPreviewSection: some View {
+        sectionTitle("Animations Preview")
+
+        settingsCard {
+            // --- Agent sprites row ---
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Agent sprites")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                HStack(spacing: 20) {
+                    previewTile("Claude idle") {
+                        ClaudePixelChar(isAnimating: false)
+                    }
+                    previewTile("Claude running") {
+                        ClaudePixelChar(isAnimating: true)
+                    }
+                    previewTile("Claude waiting") {
+                        ClaudePixelChar(isAnimating: true, colorOverride: .orange)
+                    }
+                    previewTile("Codex idle") {
+                        CodexPixelChar(isAnimating: false)
+                    }
+                    previewTile("Codex running") {
+                        CodexPixelChar(isAnimating: true)
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+
+            rowDivider
+
+            // --- Status combos (sprite + indicator, non-running) ---
+            // Running is covered by its own section below; here we pair each
+            // non-running status with an agent sprite so the combo reads the
+            // same way it would in the real expanded panel.
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Status combos (sprite + indicator)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                HStack(spacing: 20) {
+                    previewTile("Claude + Permission") {
+                        agentStatusCombo(agent: .claudeCode, animating: true, waitingColor: .orange) {
+                            PixelStatusIcon(
+                                pixels: [(1,0),(1,1),(1,2),(1,3),(1,5)],
+                                color: .orange
+                            )
+                        }
+                    }
+                    previewTile("Claude + Question") {
+                        agentStatusCombo(agent: .claudeCode, animating: true, waitingColor: .orange) {
+                            PixelStatusIcon(
+                                pixels: [(1,0),(2,0),(3,1),(2,2),(1,3),(1,5)],
+                                color: .orange
+                            )
+                        }
+                    }
+                    previewTile("Claude + Error") {
+                        agentStatusCombo(agent: .claudeCode, animating: false) {
+                            PixelStatusIcon(
+                                pixels: [(1,0),(1,1),(1,2),(1,3),(1,5)],
+                                color: .red
+                            )
+                        }
+                    }
+                    previewTile("Claude + Idle") {
+                        agentStatusCombo(agent: .claudeCode, animating: false) {
+                            PixelStatusIcon(
+                                pixels: [
+                                    (0,0),(0,1),(0,2),(0,3),(0,4),(0,5),
+                                    (1,0),(1,1),(1,2),(1,3),(1,4),(1,5),
+                                ],
+                                color: Color(red: 0.85, green: 0.52, blue: 0.35)
+                            )
+                        }
+                    }
+                    previewTile("Codex + Idle") {
+                        agentStatusCombo(agent: .codex, animating: false) {
+                            PixelStatusIcon(
+                                pixels: [
+                                    (0,0),(0,1),(0,2),(0,3),(0,4),(0,5),
+                                    (1,0),(1,1),(1,2),(1,3),(1,4),(1,5),
+                                ],
+                                color: Color(red: 0.25, green: 0.65, blue: 0.38)
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+
+            rowDivider
+
+            // --- Row-layout combos (sprite + status, expanded-panel look) ---
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Running combo (sprite + indicator)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                HStack(spacing: 20) {
+                    previewTile("Claude + breath") {
+                        agentStatusCombo(agent: .claudeCode) {
+                            BreathingPixelBall(color: runningBlue)
+                        }
+                    }
+                    previewTile("Claude + orbit") {
+                        agentStatusCombo(agent: .claudeCode) {
+                            OrbitingPixel(color: runningBlue)
+                        }
+                    }
+                    previewTile("Claude + comet") {
+                        agentStatusCombo(agent: .claudeCode) {
+                            CometTrail(color: runningBlue)
+                        }
+                    }
+                    previewTile("Codex + breath") {
+                        agentStatusCombo(agent: .codex) {
+                            BreathingPixelBall(color: runningBlue)
+                        }
+                    }
+                    previewTile("Codex + comet") {
+                        agentStatusCombo(agent: .codex) {
+                            CometTrail(color: runningBlue)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+
+            rowDivider
+
+            // --- Sound-bound effects ---
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Sound-bound effects (tap to fire)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                HStack(spacing: 20) {
+                    // Tap anywhere in the tile to post a synthetic
+                    // coderIslandSoundPlayed notification so the overlay
+                    // picks it up without actually playing sound.
+                    Button {
+                        NotificationCenter.default.post(
+                            name: .coderIslandSoundPlayed,
+                            object: nil,
+                            userInfo: ["category": SoundCategory.taskComplete.rawValue]
+                        )
+                    } label: {
+                        previewTile("Task complete (stars)") {
+                            ZStack {
+                                ClaudePixelChar(isAnimating: false)
+                                PixelEffectOverlay()
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Tap to spawn star burst")
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 14)
+        }
+    }
+
+    /// Color used by the expanded panel for running sessions. Mirrors the
+    /// hard-coded value in AgentRowView so previews look identical.
+    private var runningBlue: Color {
+        Color(red: 0.3, green: 0.5, blue: 0.95)
+    }
+
+    /// Mirrors the HStack layout from AgentRowView.agentIcon so combo
+    /// previews match the real expanded-panel look (sprite 1.2× + 3pt gap
+    /// + status indicator).
+    @ViewBuilder
+    private func agentStatusCombo<Indicator: View>(
+        agent: AgentType,
+        animating: Bool = true,
+        waitingColor: Color? = nil,
+        @ViewBuilder indicator: () -> Indicator
+    ) -> some View {
+        // spacing 0 — comet looks best flush against the sprite, and the
+        // preview matches how the real row will render once we commit.
+        HStack(spacing: 0) {
+            Group {
+                switch agent {
+                case .claudeCode:
+                    ClaudePixelChar(isAnimating: animating, colorOverride: waitingColor)
+                case .codex:
+                    CodexPixelChar(isAnimating: animating, colorOverride: waitingColor)
+                }
+            }
+            .scaleEffect(1.2)
+            .frame(width: 20, height: 20)
+
+            indicator()
+        }
+    }
+
+    /// Framed preview cell with a caption underneath — keeps tiles a
+    /// uniform size so tweaks are easy to eyeball side-by-side.
+    private func previewTile<V: View>(
+        _ label: String,
+        @ViewBuilder content: () -> V
+    ) -> some View {
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.white.opacity(0.05))
+                content()
+                    .scaleEffect(1.4)
+            }
+            .frame(width: 50, height: 38)
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.6))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 80)
+        }
     }
 }
 

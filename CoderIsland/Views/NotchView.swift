@@ -175,7 +175,12 @@ struct IslandView: View {
                 let displaySession = permSession ?? askSession ?? first
                 let displayHasPermission = permSession != nil && displaySession.id == permSession?.id
 
-                Group {
+                // Sprite + status indicator are one tight unit — zero
+                // spacing between them so the indicator reads as "attached"
+                // to the sprite rather than floating in the bar gap. The
+                // outer HStack spacing still applies between this unit and
+                // the task name.
+                HStack(spacing: 0) {
                     let isActive = displaySession.status == .running || displaySession.status == .waiting || displayHasPermission
                     let waitingColor: Color? = (displaySession.status == .waiting || displayHasPermission) ? .orange : nil
                     ZStack {
@@ -190,6 +195,11 @@ struct IslandView: View {
                         // to show up on the visible sprite.
                         PixelEffectOverlay()
                     }
+
+                    SessionStatusIndicator(
+                        session: displaySession,
+                        hasPendingPermission: displayHasPermission
+                    )
                 }
 
                 // Task name: intrinsic width up to a hard cap. Without the

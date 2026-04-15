@@ -59,15 +59,23 @@ button:hover { background: #666; }
 let COLS = 8, ROWS = 7;
 let grid = [];
 
-// Current pixel data from code
+// Current pixel data from code — CodexPixelChar (cloud + >_ + cursor).
+// Combines cloudPixels, chevronPixels, cursorPixels from AgentRowView.swift.
 const initialPixels = [
-  [0,0],[7,0],
-  [0,1],[1,1],[6,1],[7,1],
-  [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],
-  [0,3],[2,3],[3,3],[4,3],[5,3],[7,3],
-  [0,4],[1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],
-  [1,5],[2,5],[3,5],[4,5],[5,5],[6,5],
-  [2,6],[5,6],
+  // Row 0: cloud top bump
+  [2,0],[3,0],[4,0],[5,0],
+  // Row 1: cloud upper curve
+  [1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+  // Row 2: cloud sides + > top
+  [0,2],[1,2],[3,2],[6,2],[7,2],
+  // Row 3: cloud sides + > point
+  [0,3],[4,3],[7,3],
+  // Row 4: cloud sides + > bottom
+  [0,4],[1,4],[3,4],[6,4],[7,4],
+  // Row 5: cloud left + _ cursor
+  [1,5],[4,5],[5,5],[6,5],
+  // Row 6: cloud bottom bump
+  [2,6],[3,6],[4,6],[5,6],
 ];
 
 function init() {
@@ -78,40 +86,85 @@ function init() {
   render();
 }
 
+// Cached DOM references — built once in render(), patched in toggle().
+// This avoids nuking and rebuilding every cell on each click, which was
+// causing the flicker the user noticed.
+let cellEls = [];       // [y][x] -> grid cell div
+let previewEls = [];    // [y][x] -> big preview div
+let actualEls = [];     // [y][x] -> small preview div (null when not drawn)
+let lastPaintedKey = null; // prevents drag from toggling the same cell twice
+
 function render() {
   const gridEl = document.getElementById('grid');
   gridEl.style.gridTemplateColumns = `repeat(${COLS}, 32px)`;
   gridEl.innerHTML = '';
+  cellEls = [];
   for (let y = 0; y < ROWS; y++) {
+    const row = [];
     for (let x = 0; x < COLS; x++) {
       const cell = document.createElement('div');
       cell.className = `cell ${grid[y][x] ? 'filled' : 'empty'}`;
-      cell.onmousedown = (e) => { e.preventDefault(); toggle(x, y); };
-      cell.onmouseenter = (e) => { if (e.buttons === 1) toggle(x, y); };
+      cell.onmousedown = (e) => {
+        e.preventDefault();
+        lastPaintedKey = `${x},${y}`;
+        toggle(x, y);
+      };
+      cell.onmouseenter = (e) => {
+        if (e.buttons !== 1) return;
+        const key = `${x},${y}`;
+        if (key === lastPaintedKey) return;
+        lastPaintedKey = key;
+        toggle(x, y);
+      };
       gridEl.appendChild(cell);
+      row.push(cell);
     }
+    cellEls.push(row);
   }
-  renderPreview();
+  buildPreview();
   renderOutput();
 }
 
 function toggle(x, y) {
   grid[y][x] = !grid[y][x];
-  render();
+  // Patch just the affected cells instead of rebuilding any DOM.
+  const filled = grid[y][x];
+  cellEls[y][x].className = `cell ${filled ? 'filled' : 'empty'}`;
+  previewEls[y][x].className = `px ${filled ? 'filled' : 'empty'}`;
+  // Actual preview stores absolute-positioned dots — add/remove one.
+  if (filled && !actualEls[y][x]) {
+    const p = 2, frameW = 16, frameH = 16;
+    const ox = (frameW - COLS * p) / 2;
+    const oy = (frameH - ROWS * p) / 2;
+    const dot = document.createElement('div');
+    dot.style.cssText = `position:absolute;left:${ox+x*p}px;top:${oy+y*p}px;width:${p}px;height:${p}px;background:#d97757;`;
+    document.getElementById('preview-actual').appendChild(dot);
+    actualEls[y][x] = dot;
+  } else if (!filled && actualEls[y][x]) {
+    actualEls[y][x].remove();
+    actualEls[y][x] = null;
+  }
+  renderOutput();
 }
 
-function renderPreview() {
+// One-time builders for the preview panels. Cells' filled/empty state
+// changes via toggle(); these functions only run on first render or resize.
+function buildPreview() {
   // 2x preview
   const prev = document.getElementById('preview');
   const pxSize = 4;
   prev.style.gridTemplateColumns = `repeat(${COLS}, ${pxSize}px)`;
   prev.innerHTML = '';
+  previewEls = [];
   for (let y = 0; y < ROWS; y++) {
+    const row = [];
     for (let x = 0; x < COLS; x++) {
       const px = document.createElement('div');
       px.className = `px ${grid[y][x] ? 'filled' : 'empty'}`;
       prev.appendChild(px);
+      row.push(px);
     }
+    previewEls.push(row);
   }
 
   // Actual size preview (16x16 with p=2)
@@ -122,18 +175,23 @@ function renderPreview() {
   actual.style.position = 'relative';
   actual.style.display = 'block';
   actual.innerHTML = '';
+  actualEls = Array.from({length: ROWS}, () => Array(COLS).fill(null));
   const ox = (frameW - COLS * p) / 2;
   const oy = (frameH - ROWS * p) / 2;
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       if (grid[y][x]) {
-        const px = document.createElement('div');
-        px.style.cssText = `position:absolute;left:${ox+x*p}px;top:${oy+y*p}px;width:${p}px;height:${p}px;background:#d97757;`;
-        actual.appendChild(px);
+        const dot = document.createElement('div');
+        dot.style.cssText = `position:absolute;left:${ox+x*p}px;top:${oy+y*p}px;width:${p}px;height:${p}px;background:#d97757;`;
+        actual.appendChild(dot);
+        actualEls[y][x] = dot;
       }
     }
   }
 }
+
+// Reset the drag-paint tracker when the user lifts the mouse anywhere.
+window.addEventListener('mouseup', () => { lastPaintedKey = null; });
 
 function renderOutput() {
   const pixels = [];
