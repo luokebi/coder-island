@@ -23,11 +23,16 @@ struct SettingsView: View {
 
     @State private var isImportingSound = false
     @State private var importTarget: SoundManager.Event?
+    @State private var importTargetCategory: SoundCategory?
     @State private var permissionSoundName = ""
     @State private var askSoundName = ""
     @State private var doneSoundName = ""
     @State private var appStartedSoundName = ""
     @State private var soundStatus = ""
+    /// Mirror of SoundManager.activePackId so the menu re-renders on change.
+    @State private var activePackId = SoundManager.shared.activePackId
+    /// Mirror of per-category override display names.
+    @State private var categoryOverrideNames: [String: String] = [:]
 
     var body: some View {
         ZStack {
@@ -75,46 +80,21 @@ struct SettingsView: View {
                     settingsCard {
                         settingsRow(
                             title: "Sound effects",
-                            subtitle: "Play sounds for permission, question, and completion events."
+                            subtitle: "Play sounds for agent lifecycle events."
                         ) {
                             rightSwitch($soundEnabled)
                         }
                         rowDivider
                         settingsRow(
-                            title: "Sound preset",
-                            subtitle: "Choose a built-in sound profile"
+                            title: "Sound pack",
+                            subtitle: activePackDescription
                         ) {
-                            presetMenu
-                                .disabled(!soundEnabled)
+                            packMenu.disabled(!soundEnabled)
                         }
-                        rowDivider
-                        soundEventRow(
-                            title: "Permission request",
-                            event: .permission,
-                            currentCustomName: permissionSoundName,
-                            enabled: $soundPermissionEnabled
-                        )
-                        rowDivider
-                        soundEventRow(
-                            title: "Question",
-                            event: .ask,
-                            currentCustomName: askSoundName,
-                            enabled: $soundAskEnabled
-                        )
-                        rowDivider
-                        soundEventRow(
-                            title: "Task completed",
-                            event: .taskComplete,
-                            currentCustomName: doneSoundName,
-                            enabled: $soundTaskDoneEnabled
-                        )
-                        rowDivider
-                        soundEventRow(
-                            title: "App started",
-                            event: .appStarted,
-                            currentCustomName: appStartedSoundName,
-                            enabled: $soundAppStartedEnabled
-                        )
+                    }
+
+                    ForEach(SoundCategory.Section.allCases, id: \.self) { section in
+                        soundSectionCard(section)
                     }
 
                     if !soundStatus.isEmpty {
@@ -232,19 +212,26 @@ struct SettingsView: View {
             allowedContentTypes: [.audio],
             allowsMultipleSelection: false
         ) { result in
-            guard let event = importTarget else { return }
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
                 do {
-                    try SoundManager.shared.setCustomSound(for: event, from: url)
+                    if let category = importTargetCategory {
+                        try SoundManager.shared.setOverride(for: category, from: url)
+                    } else if let event = importTarget {
+                        try SoundManager.shared.setCustomSound(for: event, from: url)
+                    }
                     refreshCustomSoundNames()
                     soundStatus = "Applied custom override: \(url.lastPathComponent)"
                 } catch {
                     soundStatus = "Failed to apply sound: \(error.localizedDescription)"
                 }
+                importTargetCategory = nil
+                importTarget = nil
             case .failure(let error):
                 soundStatus = "File selection failed: \(error.localizedDescription)"
+                importTargetCategory = nil
+                importTarget = nil
             }
         }
     }
@@ -505,6 +492,111 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Pack menu (Phase 3)
+
+    private var activePackDescription: String {
+        guard let pack = SoundManager.shared.activePack else {
+            return "No pack loaded"
+        }
+        let license = pack.manifest.license
+        let author = pack.manifest.author.name
+        return "\(pack.manifest.name) · by \(author) · \(license)"
+    }
+
+    private var packMenu: some View {
+        let packs = SoundPackStore.shared.packs
+        let currentLabel = SoundManager.shared.activePack?.manifest.name ?? "(none)"
+        return dropdownMenu(currentLabel: currentLabel) {
+            ForEach(packs, id: \.manifest.id) { pack in
+                Button {
+                    SoundManager.shared.activePackId = pack.manifest.id
+                    activePackId = pack.manifest.id
+                } label: {
+                    HStack {
+                        Text(pack.manifest.name)
+                        if pack.manifest.id == activePackId {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Category section card
+
+    private func soundSectionCard(_ section: SoundCategory.Section) -> some View {
+        let categories = SoundCategory.allCases.filter { $0.section == section }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(section.displayName.uppercased())
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .tracking(1.2)
+                .foregroundColor(.white.opacity(0.45))
+                .padding(.horizontal, 4)
+
+            settingsCard {
+                ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
+                    if index > 0 {
+                        rowDivider
+                    }
+                    categoryRow(category)
+                }
+            }
+        }
+    }
+
+    private func categoryRow(_ category: SoundCategory) -> some View {
+        let overrideName = categoryOverrideNames[category.rawValue] ?? ""
+        let reservedTag = category.isActiveInV1 ? "" : "  (reserved)"
+        let subtitle: String = {
+            if !overrideName.isEmpty {
+                return "Custom: \(overrideName)\(reservedTag)"
+            }
+            if SoundManager.shared.activePack?.pickEntry(for: category.manifestKey) != nil {
+                return "Pack default\(reservedTag)"
+            }
+            return "System fallback\(reservedTag)"
+        }()
+
+        let enabledBinding = Binding<Bool>(
+            get: { SoundManager.shared.isEnabled(category) },
+            set: { SoundManager.shared.setEnabled(category, enabled: $0) }
+        )
+
+        return settingsRow(
+            title: "\(category.displayName) — \(category.helpText.lowercased())",
+            subtitle: subtitle
+        ) {
+            VStack(alignment: .trailing, spacing: 8) {
+                rightSwitch(enabledBinding)
+                HStack(spacing: 8) {
+                    iconActionButton("play.fill", accessibilityLabel: "Preview") {
+                        SoundManager.shared.playPreview(for: category)
+                    }
+                    .disabled(!soundEnabled)
+
+                    actionButton("Upload") {
+                        importTargetCategory = category
+                        importTarget = nil
+                        isImportingSound = true
+                    }
+                    .disabled(!soundEnabled)
+
+                    if !overrideName.isEmpty {
+                        actionButton("Clear", foreground: .red.opacity(0.9)) {
+                            SoundManager.shared.clearOverride(for: category)
+                            refreshCustomSoundNames()
+                            soundStatus = "Cleared custom sound for \(category.displayName)."
+                        }
+                        .disabled(!soundEnabled)
+                    }
+                }
+            }
+            .opacity(soundEnabled ? 1 : 0.55)
+        }
+    }
+
     private func rightSwitch(_ value: Binding<Bool>) -> some View {
         Toggle("", isOn: value)
             .labelsHidden()
@@ -530,6 +622,13 @@ struct SettingsView: View {
         askSoundName = SoundManager.shared.customSoundName(for: .ask) ?? ""
         doneSoundName = SoundManager.shared.customSoundName(for: .taskComplete) ?? ""
         appStartedSoundName = SoundManager.shared.customSoundName(for: .appStarted) ?? ""
+
+        var names: [String: String] = [:]
+        for category in SoundCategory.allCases {
+            names[category.rawValue] = SoundManager.shared.overrideDisplayName(for: category) ?? ""
+        }
+        categoryOverrideNames = names
+        activePackId = SoundManager.shared.activePackId
     }
 }
 

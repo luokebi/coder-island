@@ -96,10 +96,16 @@ class SoundManager {
             .appendingPathComponent("Library/Application Support/CoderIsland", isDirectory: true)
     }
 
-    /// Legacy per-event override directory. Kept so existing user files keep
-    /// working until Phase 3 migrates them under `Overrides/<category>.<ext>`.
+    /// Legacy per-event override directory. Retained for reading existing
+    /// user files; new writes go to `overridesDir`.
     private var legacyCustomSoundsDir: URL {
         appSupportDir.appendingPathComponent("SoundPacks/Custom", isDirectory: true)
+    }
+
+    /// New per-category override directory, used by the Settings UI
+    /// introduced in Phase 3.
+    private var overridesDir: URL {
+        appSupportDir.appendingPathComponent("SoundPacks/Overrides", isDirectory: true)
     }
 
     var selectedPreset: Preset {
@@ -107,11 +113,111 @@ class SoundManager {
         return Preset(rawValue: raw) ?? .mario
     }
 
-    /// The active pack. Currently resolved via the legacy `Preset` setting;
-    /// Phase 3 will read `sound.activePackId` directly.
-    private var activePack: SoundPack? {
+    private let activePackKey = "sound.activePackId"
+
+    /// The active pack id, preferring the new `sound.activePackId` key and
+    /// falling back to the legacy `soundPreset`'s mapping.
+    var activePackId: String {
+        get {
+            if let id = UserDefaults.standard.string(forKey: activePackKey), !id.isEmpty {
+                return id
+            }
+            return selectedPreset.packId
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: activePackKey)
+            // Best-effort mirror into legacy `soundPreset` so older Settings
+            // UI still shows the right value if it ever re-renders.
+            if let preset = Preset.allCases.first(where: { $0.packId == newValue }) {
+                UserDefaults.standard.set(preset.rawValue, forKey: presetKey)
+            }
+        }
+    }
+
+    /// The active pack, resolved against SoundPackStore.
+    var activePack: SoundPack? {
         let store = SoundPackStore.shared
-        return store.pack(withId: selectedPreset.packId) ?? store.defaultPack
+        return store.pack(withId: activePackId) ?? store.defaultPack
+    }
+
+    // MARK: - Per-category override API (Phase 3)
+
+    /// Returns the override file URL for a category, preferring the new
+    /// `Overrides/<category>.<ext>` location and falling back to the legacy
+    /// per-event file if this category maps to a legacy Event.
+    func overrideFileURL(for category: SoundCategory) -> URL? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: overridesDir.path),
+           let files = try? fm.contentsOfDirectory(at: overridesDir, includingPropertiesForKeys: nil),
+           let match = files.first(where: { $0.lastPathComponent.hasPrefix(category.rawValue + ".") }) {
+            return match
+        }
+        if let legacyEvent = category.legacyEvent {
+            return customSoundURL(for: legacyEvent)
+        }
+        return nil
+    }
+
+    /// User-friendly file name for the override (for Settings row subtitle).
+    /// Uses the stored display name first; falls back to the actual file's
+    /// basename if we only know the file on disk.
+    func overrideDisplayName(for category: SoundCategory) -> String? {
+        if let stored = UserDefaults.standard.string(forKey: category.overrideFileDefaultsKey),
+           !stored.isEmpty {
+            return stored
+        }
+        if let legacyEvent = category.legacyEvent,
+           let stored = customSoundName(for: legacyEvent), !stored.isEmpty {
+            return stored
+        }
+        return overrideFileURL(for: category)?.lastPathComponent
+    }
+
+    /// Imports a user-selected file as the override for `category`.
+    /// Writes to `Overrides/<category>.<ext>` and persists the display name.
+    /// For categories that map to a legacy Event, this also removes the
+    /// legacy per-event file to avoid double-play.
+    func setOverride(for category: SoundCategory, from sourceURL: URL) throws {
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        let fm = FileManager.default
+        try fm.createDirectory(at: overridesDir, withIntermediateDirectories: true)
+        removeExistingOverrideFile(for: category)
+
+        let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension
+        let target = overridesDir.appendingPathComponent("\(category.rawValue).\(ext)")
+        try fm.copyItem(at: sourceURL, to: target)
+
+        UserDefaults.standard.set(sourceURL.lastPathComponent, forKey: category.overrideFileDefaultsKey)
+
+        // Migrate forward: if a legacy per-event file exists, remove it so
+        // resolution doesn't accidentally prefer the old file.
+        if let legacyEvent = category.legacyEvent {
+            removeExistingCustomFile(for: legacyEvent)
+            UserDefaults.standard.removeObject(forKey: customNamePrefix + legacyEvent.rawValue)
+        }
+    }
+
+    /// Removes the per-category override, reverting to active-pack behavior.
+    func clearOverride(for category: SoundCategory) {
+        removeExistingOverrideFile(for: category)
+        UserDefaults.standard.removeObject(forKey: category.overrideFileDefaultsKey)
+        if let legacyEvent = category.legacyEvent {
+            removeExistingCustomFile(for: legacyEvent)
+            UserDefaults.standard.removeObject(forKey: customNamePrefix + legacyEvent.rawValue)
+        }
+    }
+
+    private func removeExistingOverrideFile(for category: SoundCategory) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: overridesDir.path),
+              let files = try? fm.contentsOfDirectory(at: overridesDir, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for file in files where file.lastPathComponent.hasPrefix(category.rawValue + ".") {
+            try? fm.removeItem(at: file)
+        }
     }
 
     // MARK: - Custom-per-event API (legacy, preserved for Settings UI)
@@ -306,15 +412,8 @@ class SoundManager {
             lastPlayedAt[key] = now
         }
 
-        // 1. New-style override file
-        if let overridePath = UserDefaults.standard.string(forKey: category.overrideFileDefaultsKey),
-           !overridePath.isEmpty {
-            let url = URL(fileURLWithPath: overridePath)
-            if SoundPackPlayer.shared.play(source: .file(url)) { return }
-        }
-        // 1b. Legacy per-event override file (if this category maps to one)
-        if let legacyEvent = category.legacyEvent,
-           let url = customSoundURL(for: legacyEvent),
+        // 1. Override file (new Overrides/<category>.<ext> → legacy fallback)
+        if let url = overrideFileURL(for: category),
            SoundPackPlayer.shared.play(source: .file(url)) {
             return
         }
