@@ -192,7 +192,9 @@ struct SettingsView: View {
                         }
                     }
 
+                    #if DEBUG
                     animationPreviewSection
+                    #endif
 
                 }
                 .padding(24)
@@ -633,11 +635,14 @@ struct SettingsView: View {
         activePackId = SoundManager.shared.activePackId
     }
 
-    // MARK: - Animations Preview (dev tool)
+    // MARK: - Animations Preview (dev tool, DEBUG builds only)
 
     /// A bottom panel that renders every pixel animation we ship, side by
     /// side, so we can eyeball tweaks without waiting for a real trigger.
     /// Star burst is tap-to-fire so you can audition the overlay rhythm.
+    ///
+    /// Gated behind `#if DEBUG` at the call site in `body` so release
+    /// archives don't ship this dev surface to users.
     @ViewBuilder
     private var animationPreviewSection: some View {
         sectionTitle("Animations Preview")
