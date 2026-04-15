@@ -205,13 +205,27 @@ struct SessionStatusIndicator: View {
     var body: some View {
         let color = indicatorColor
         let isRunning = session.status == .running && !hasPendingPermission
-        if isRunning {
-            CometTrail(color: color)
-                .opacity(isDimmed ? 0.5 : 1)
-        } else {
-            PixelStatusIcon(pixels: pixels, color: color, blink: isDimmed)
-                .opacity(isDimmed ? 0.5 : 1)
+        // Wrap in Group + explicit .id so SwiftUI fully tears down the
+        // previous branch (e.g. CometTrail's Timer-driven Canvas) when
+        // status flips. Without this, we've observed CometTrail pixels
+        // lingering visually after a .running -> .justFinished transition.
+        Group {
+            if isRunning {
+                CometTrail(color: color)
+                    .opacity(isDimmed ? 0.5 : 1)
+            } else {
+                PixelStatusIcon(pixels: pixels, color: color, blink: isDimmed)
+                    .opacity(isDimmed ? 0.5 : 1)
+            }
         }
+        .id(viewIdentity)
+    }
+
+    /// Distinct identity per effective render path so SwiftUI discards
+    /// the old view when the path changes (running → idle, etc.).
+    private var viewIdentity: String {
+        if hasPendingPermission { return "perm" }
+        return "\(session.status.rawValue)-\(isDimmed ? 1 : 0)"
     }
 
     private var indicatorColor: Color {

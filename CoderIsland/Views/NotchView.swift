@@ -175,32 +175,19 @@ struct IslandView: View {
                 let displaySession = permSession ?? askSession ?? first
                 let displayHasPermission = permSession != nil && displaySession.id == permSession?.id
 
-                // Sprite + status indicator are one tight unit — zero
-                // spacing between them so the indicator reads as "attached"
-                // to the sprite rather than floating in the bar gap. The
-                // outer HStack spacing still applies between this unit and
-                // the task name.
-                HStack(spacing: 0) {
-                    let isActive = displaySession.status == .running || displaySession.status == .waiting || displayHasPermission
-                    let waitingColor: Color? = (displaySession.status == .waiting || displayHasPermission) ? .orange : nil
-                    ZStack {
-                        if displaySession.agentType == .codex {
-                            CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
-                        } else {
-                            ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
-                        }
-                        // Compact bar picks up every sound event (no
-                        // sessionId filter) since it's the global single-agent
-                        // view — whichever session fires, we want the burst
-                        // to show up on the visible sprite.
-                        PixelEffectOverlay()
-                    }
-
-                    SessionStatusIndicator(
-                        session: displaySession,
-                        hasPendingPermission: displayHasPermission
-                    )
-                }
+                // Sprite + status indicator — extracted so the subview can
+                // @ObservedObject the AgentSession directly. Without that,
+                // NotchView only observes `agentManager` and
+                // agentManager.sessions[i].status mutations don't trigger
+                // a re-render here (class AgentSession is held by
+                // reference, array identity is unchanged). Result was
+                // compact bar stuck on the old indicator (e.g. CometTrail
+                // from a prior .running) after the session transitioned
+                // to .justFinished.
+                CompactSpriteAndIndicator(
+                    session: displaySession,
+                    hasPendingPermission: displayHasPermission
+                )
 
                 // Task name: intrinsic width up to a hard cap. Without the
                 // cap, a very long session title (e.g. a Codex thread named
@@ -990,5 +977,47 @@ struct NotchShape: Shape {
 struct PassthroughButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+    }
+}
+
+/// Compact-bar sprite + status indicator for a single session.
+/// Extracted so `@ObservedObject` can subscribe to the AgentSession's
+/// @Published properties (status, etc.). Previously rendered inline in
+/// NotchView.compactContent, which only observes `agentManager` — array
+/// mutations re-render, but AgentSession property mutations (e.g. the
+/// Stop hook flipping .running → .justFinished) do not, leaving the
+/// comet trail painted until some other parent state happened to change.
+struct CompactSpriteAndIndicator: View {
+    @ObservedObject var session: AgentSession
+    let hasPendingPermission: Bool
+
+    var body: some View {
+        let isActive = session.status == .running
+            || session.status == .waiting
+            || hasPendingPermission
+        let waitingColor: Color? = (session.status == .waiting || hasPendingPermission)
+            ? .orange
+            : nil
+
+        // spacing 0 — indicator reads as attached to the sprite rather
+        // than floating in the bar gap.
+        HStack(spacing: 0) {
+            ZStack {
+                if session.agentType == .codex {
+                    CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                } else {
+                    ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                }
+                // Compact bar takes every sound event (no sessionId
+                // filter) since whichever session fires we want the
+                // burst to show on the visible sprite.
+                PixelEffectOverlay()
+            }
+
+            SessionStatusIndicator(
+                session: session,
+                hasPendingPermission: hasPendingPermission
+            )
+        }
     }
 }
