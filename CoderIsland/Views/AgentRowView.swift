@@ -65,7 +65,10 @@ struct AgentRowView: View {
 
     @ViewBuilder
     private var agentIcon: some View {
-        HStack(spacing: 3) {
+        // spacing 0 — the status indicator (CometTrail / ! / ? / cursor
+        // blink) should read as attached to the sprite, same as the
+        // compact bar. Any gap makes it look detached in the row.
+        HStack(spacing: 0) {
             // Agent character
             Group {
                 let waitingColor: Color? = (session.status == .waiting || hasPendingPermission) ? .orange : nil
