@@ -1014,10 +1014,25 @@ struct CompactSpriteAndIndicator: View {
                 PixelEffectOverlay()
             }
 
-            SessionStatusIndicator(
-                session: session,
-                hasPendingPermission: hasPendingPermission
-            )
+            // Compact bar hides the indicator for idle/finished states —
+            // the cursor blink ▌▌ doesn't carry useful info when the
+            // session is at rest and just adds noise next to the sprite.
+            // Running / waiting / permission states are meaningful so
+            // keep them visible (comet trail, ?, !).
+            if showIndicator {
+                SessionStatusIndicator(
+                    session: session,
+                    hasPendingPermission: hasPendingPermission
+                )
+            }
+        }
+    }
+
+    private var showIndicator: Bool {
+        if hasPendingPermission { return true }
+        switch session.status {
+        case .running, .waiting:     return true
+        case .justFinished, .done, .idle, .error: return false
         }
     }
 }

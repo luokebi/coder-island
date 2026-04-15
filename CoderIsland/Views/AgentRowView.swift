@@ -65,9 +65,11 @@ struct AgentRowView: View {
 
     @ViewBuilder
     private var agentIcon: some View {
-        // spacing 0 — the status indicator (CometTrail / ! / ? / cursor
-        // blink) should read as attached to the sprite, same as the
-        // compact bar. Any gap makes it look detached in the row.
+        // spacing 0 for running — the comet trail should look attached
+        // to the walking sprite. For static indicators (! / ? / cursor
+        // blink) a small 3pt breathing room reads cleaner; otherwise
+        // the glyph fuses visually into the sprite.
+        let indicatorPad: CGFloat = (session.status == .running && !hasPendingPermission) ? 0 : 3
         HStack(spacing: 0) {
             // Agent character
             Group {
@@ -90,8 +92,9 @@ struct AgentRowView: View {
             .scaleEffect(1.2)
             .frame(width: 20, height: 20)
 
-            // Status indicator
+            // Status indicator — flush for running, small gap otherwise.
             statusEmoji
+                .padding(.leading, indicatorPad)
         }
     }
 

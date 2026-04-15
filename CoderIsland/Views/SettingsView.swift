@@ -772,6 +772,26 @@ struct SettingsView: View {
 
             rowDivider
 
+            // --- Compact bar mock — shows how the notch renders in the
+            // collapsed state for each session status. Idle/finished
+            // sessions intentionally skip the status indicator.
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Compact bar (collapsed notch)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+                VStack(spacing: 6) {
+                    compactBarMock(label: "Running", agent: .claudeCode, status: .running, taskName: "coder-island")
+                    compactBarMock(label: "Waiting", agent: .claudeCode, status: .waiting, taskName: "coder-island", subtitle: "Waiting for answer...", subtitleColor: .orange.opacity(0.8))
+                    compactBarMock(label: "Permission", agent: .claudeCode, status: .running, hasPendingPermission: true, taskName: "coder-island", subtitle: "Permission needed", subtitleColor: .orange.opacity(0.85))
+                    compactBarMock(label: "Just finished", agent: .claudeCode, status: .justFinished, taskName: "coder-island", subtitle: "Just finished", subtitleColor: Color(nsColor: .systemGreen).opacity(0.85))
+                    compactBarMock(label: "Idle", agent: .codex, status: .idle, taskName: "job")
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+
+            rowDivider
+
             // --- Sound-bound effects ---
             VStack(alignment: .leading, spacing: 10) {
                 Text("Sound-bound effects (tap to fire)")
@@ -837,6 +857,85 @@ struct SettingsView: View {
 
             indicator()
         }
+    }
+
+    /// Mock of the real compact-notch bar for a given agent status.
+    /// Uses the same sprite / indicator pair as CompactSpriteAndIndicator
+    /// and mirrors the idle-hiding rule (no indicator when idle/finished/error).
+    @ViewBuilder
+    private func compactBarMock(
+        label: String,
+        agent: AgentType,
+        status: AgentStatus,
+        hasPendingPermission: Bool = false,
+        taskName: String,
+        subtitle: String? = nil,
+        subtitleColor: Color = .white.opacity(0.6)
+    ) -> some View {
+        let isActive = status == .running || status == .waiting || hasPendingPermission
+        let waitingColor: Color? = (status == .waiting || hasPendingPermission) ? .orange : nil
+        let showInd: Bool = hasPendingPermission || status == .running || status == .waiting
+
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5))
+                .frame(width: 90, alignment: .leading)
+
+            HStack(spacing: 6) {
+                HStack(spacing: 0) {
+                    Group {
+                        switch agent {
+                        case .claudeCode:
+                            ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                        case .codex:
+                            CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
+                        }
+                    }
+                    if showInd {
+                        // Build a mock session object just for the indicator.
+                        // The real SessionStatusIndicator requires an
+                        // @ObservedObject AgentSession, so we synthesize one.
+                        SessionStatusIndicator(
+                            session: mockSession(agent: agent, status: status),
+                            hasPendingPermission: hasPendingPermission
+                        )
+                    }
+                }
+                Text(taskName)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(status.isRecentlyFinished ? .gray : .white)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(subtitleColor)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.black)
+            )
+        }
+    }
+
+    /// Synthetic AgentSession purely for driving the mock indicator. Never
+    /// shown in a real session list.
+    private func mockSession(agent: AgentType, status: AgentStatus) -> AgentSession {
+        let s = AgentSession(
+            id: "preview-\(agent)-\(status)",
+            agentType: agent,
+            pid: 0,
+            taskName: "preview",
+            subtitle: nil,
+            status: status,
+            terminalApp: "",
+            workingDirectory: "",
+            startDate: Date()
+        )
+        return s
     }
 
     /// Framed preview cell with a caption underneath — keeps tiles a
