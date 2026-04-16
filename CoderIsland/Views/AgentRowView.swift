@@ -70,6 +70,9 @@ struct AgentRowView: View {
         // blink) a small 3pt breathing room reads cleaner; otherwise
         // the glyph fuses visually into the sprite.
         let indicatorPad: CGFloat = (session.status == .running && !hasPendingPermission) ? 0 : 3
+        // Sprite pulses in sync with the indicator when waiting or a
+        // permission is pending — reinforces the "look at me" signal.
+        let spritePulse = hasPendingPermission || session.status == .waiting
         HStack(spacing: 0) {
             // Agent character
             Group {
@@ -91,6 +94,7 @@ struct AgentRowView: View {
             }
             .scaleEffect(1.2)
             .frame(width: 20, height: 20)
+            .pulsingOpacity(enabled: spritePulse)
 
             // Status indicator — flush for running, small gap otherwise.
             statusEmoji
@@ -218,13 +222,33 @@ struct SessionStatusIndicator: View {
         // previous branch (e.g. CometTrail's Timer-driven Canvas) when
         // status flips. Without this, we've observed CometTrail pixels
         // lingering visually after a .running -> .justFinished transition.
+        // Pulse the ? / ! / ✓ glyphs so waiting / permission / error /
+        // just-finished read as "hey, look at me" rather than a static
+        // decoration. The idle cursor ▌▌ has its own hard-blink driven
+        // by `isDimmed`, and running uses CometTrail — so pulse is
+        // exclusive to the attention states.
+        let shouldPulse = hasPendingPermission
+            || session.status == .waiting
+            || session.status == .error
+            || session.status == .justFinished
+        // The ✓ is the celebratory "I just finished" badge — it should
+        // NOT blink/dim (that's the resting-cursor behavior).
+        let shouldBlink = isDimmed && session.status != .justFinished
+        // Same for the dim opacity — .justFinished needs full presence
+        // so the pulse reads cleanly.
+        let opacityDim = shouldBlink ? 0.5 : 1.0
         Group {
             if isRunning {
                 CometTrail(color: color)
                     .opacity(isDimmed ? 0.5 : 1)
             } else {
-                PixelStatusIcon(pixels: pixels, color: color, blink: isDimmed)
-                    .opacity(isDimmed ? 0.5 : 1)
+                PixelStatusIcon(
+                    pixels: pixels,
+                    color: color,
+                    blink: shouldBlink,
+                    pulse: shouldPulse
+                )
+                .opacity(opacityDim)
             }
         }
         .id(viewIdentity)
@@ -244,7 +268,13 @@ struct SessionStatusIndicator: View {
         if session.status == .running {
             return Color(red: 0.3, green: 0.5, blue: 0.95)
         }
-        // Idle / finished / error: tint with the agent's idle color so it
+        // .justFinished flashes a celebratory green check — distinct
+        // from the agent's idle tint so "I just completed something"
+        // reads differently than "resting".
+        if session.status == .justFinished {
+            return Color(red: 0.40, green: 0.85, blue: 0.50)
+        }
+        // .done / .idle / .error: tint with the agent's idle color so it
         // reads as "this one's resting" rather than an alert.
         switch session.agentType {
         case .claudeCode: return Color(red: 0.85, green: 0.52, blue: 0.35)
@@ -263,7 +293,24 @@ struct SessionStatusIndicator: View {
             return [(1,0),(2,0),(3,1),(2,2),(1,3),(1,5)] // ?
         case .error:
             return [(1,0),(1,1),(1,2),(1,3),(1,5)] // !
-        case .justFinished, .done, .idle:
+        case .justFinished:
+            // ✓ checkmark — three strictly-diagonal pixels meeting at
+            // one vertex so every stroke reads as a true diagonal (the
+            // previous design mixed a vertical segment in and looked
+            // crooked). 4×6 grid, 2pt cell.
+            //
+            //   . . . .
+            //   . . . .
+            //   . . . #     ← top of long right stroke
+            //   # . # .     ← left-stroke head + right-stroke mid
+            //   . # . .     ← vertex
+            //   . . . .
+            return [
+                (3,2),         // top of right stroke
+                (0,3), (2,3),  // left-stroke head + mid of right stroke
+                (1,4),         // vertex
+            ]
+        case .done, .idle:
             return [ // ▌▌ cursor pair
                 (0,0),(0,1),(0,2),(0,3),(0,4),(0,5),
                 (1,0),(1,1),(1,2),(1,3),(1,4),(1,5),
@@ -277,7 +324,13 @@ struct SessionStatusIndicator: View {
 struct PixelStatusIcon: View {
     let pixels: [(Int, Int)]
     let color: Color
+    /// Hard on/off blink — used by the idle cursor ▌▌ to show "resting".
     var blink: Bool = false
+    /// Soft breathing pulse — used by attention-grabbing glyphs (? ! ✓)
+    /// so they read as "active, needs your eyes" rather than static
+    /// graphics. Shared with the sprite via `.pulsingOpacity(...)` so
+    /// both elements breathe in sync for waiting/permission states.
+    var pulse: Bool = false
     @State private var visible = true
 
     private let cell: CGFloat = 2
@@ -298,6 +351,7 @@ struct PixelStatusIcon: View {
         .frame(width: 8, height: 12)
         .shadow(color: color.opacity(0.9), radius: 2)
         .shadow(color: color.opacity(0.6), radius: 4)
+        .pulsingOpacity(enabled: pulse)
         .onAppear {
             if blink { startBlink() }
         }
@@ -309,6 +363,40 @@ struct PixelStatusIcon: View {
             self.visible.toggle()
             self.startBlink()
         }
+    }
+}
+
+// MARK: - Pulsing Opacity (shared breathing animation)
+
+/// Drives a 1.0 ↔ 0.35 opacity breath on `easeInOut(0.7s)` repeating
+/// forever. Shared across the status indicator and the agent sprite so
+/// they pulse in sync for waiting/permission states.
+///
+/// The deferred `DispatchQueue.main.async` is deliberate — SwiftUI
+/// skips `withAnimation(...repeatForever...)` blocks whose state change
+/// happens in the same pass as `.onAppear`, so we have to wait one
+/// frame.
+struct PulsingOpacity: ViewModifier {
+    let enabled: Bool
+    @State private var opacity: Double = 1.0
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(enabled ? opacity : 1.0)
+            .onAppear {
+                guard enabled else { return }
+                DispatchQueue.main.async {
+                    withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                        opacity = 0.35
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    func pulsingOpacity(enabled: Bool) -> some View {
+        modifier(PulsingOpacity(enabled: enabled))
     }
 }
 
@@ -329,75 +417,6 @@ struct BreathingDot: View {
                     isAnimating = true
                 }
             }
-    }
-}
-
-// MARK: - Orbiting Pixel (alternative running-state icon)
-
-/// A single lit pixel orbiting clockwise around a 3×3 ring, 8 keyframes
-/// per revolution. Matches the BreathingPixelBall footprint (8×12pt).
-struct OrbitingPixel: View {
-    let color: Color
-    /// Full revolution duration. 1.2s with 12 frames keeps per-step pacing
-    /// identical to the earlier 8-frame/0.8s version.
-    var period: Double = 1.2
-
-    @State private var frame: Int = 0
-    @State private var timer: Timer?
-
-    private let cell: CGFloat = 2
-    private let pix: CGFloat = 1.7
-
-    /// 12 positions tracing the perimeter of a 4×4 ring in the 4×6 grid.
-    /// Uses the full width (x 0–3) and rows 1–4, leaving 1 row of padding
-    /// top and bottom. Starts top-left and orbits clockwise.
-    private static let orbit: [(Int, Int)] = [
-        // Top edge (left → right)
-        (0, 1), (1, 1), (2, 1), (3, 1),
-        // Right edge (top → bottom)
-        (3, 2), (3, 3), (3, 4),
-        // Bottom edge (right → left)
-        (2, 4), (1, 4), (0, 4),
-        // Left edge (bottom → top)
-        (0, 3), (0, 2),
-    ]
-
-    var body: some View {
-        Canvas { context, _ in
-            let (x, y) = Self.orbit[frame % Self.orbit.count]
-            let rect = CGRect(
-                x: CGFloat(x) * cell,
-                y: CGFloat(y) * cell,
-                width: pix, height: pix
-            )
-            // Render the lit pixel with a faint trailing pixel one step
-            // behind so the eye can follow the direction of motion.
-            let prev = Self.orbit[(frame - 1 + Self.orbit.count) % Self.orbit.count]
-            let trailRect = CGRect(
-                x: CGFloat(prev.0) * cell,
-                y: CGFloat(prev.1) * cell,
-                width: pix, height: pix
-            )
-            context.fill(Path(trailRect), with: .color(color.opacity(0.3)))
-            context.fill(Path(rect), with: .color(color))
-        }
-        .frame(width: 8, height: 12)
-        .shadow(color: color.opacity(0.7), radius: 2)
-        .onAppear { startTimer() }
-        .onDisappear { stopTimer() }
-    }
-
-    private func startTimer() {
-        stopTimer()
-        let step = period / Double(Self.orbit.count)
-        timer = Timer.scheduledTimer(withTimeInterval: step, repeats: true) { _ in
-            frame = (frame + 1) % Self.orbit.count
-        }
-    }
-
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
     }
 }
 
@@ -470,95 +489,6 @@ struct CometTrail: View {
         let step = period / Double(columns)
         timer = Timer.scheduledTimer(withTimeInterval: step, repeats: true) { _ in
             frame = (frame + 1) % columns
-        }
-    }
-
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
-    }
-}
-
-// MARK: - Breathing Pixel Ball (running-state status icon)
-
-/// A tiny pixel ball that cycles small → medium → large → medium → small
-/// in discrete keyframes, giving a retro "breathing" feel for the running
-/// status indicator. Keeps the 8×12pt footprint so it drops in wherever
-/// PixelStatusIcon was used.
-struct BreathingPixelBall: View {
-    let color: Color
-    /// Full cycle period (one expand + contract). 1.0s ≈ resting heart rate.
-    var period: Double = 1.0
-
-    @State private var frame: Int = 0
-    @State private var timer: Timer?
-
-    private let cell: CGFloat = 2
-    private let pix: CGFloat = 1.7
-
-    /// Five ordered keyframes walking from smallest to largest (3×3) and
-    /// back. Grid is 5 wide × 6 tall; all frames center on (2, 3).
-    private static let keyframes: [[(Int, Int)]] = [
-        // 0: single pixel center
-        [(2, 3)],
-        // 1: small plus (5 px)
-        [(2, 2), (1, 3), (2, 3), (3, 3), (2, 4)],
-        // 2: full 3×3 block (9 px) — PEAK
-        [
-            (1, 2), (2, 2), (3, 2),
-            (1, 3), (2, 3), (3, 3),
-            (1, 4), (2, 4), (3, 4),
-        ],
-        // 3: plus (5 px)
-        [(2, 2), (1, 3), (2, 3), (3, 3), (2, 4)],
-        // 4: single pixel (back to small)
-        [(2, 3)],
-    ]
-
-    var body: some View {
-        Canvas { context, _ in
-            let pixels = Self.keyframes[frame % Self.keyframes.count]
-            for (x, y) in pixels {
-                let rect = CGRect(
-                    x: CGFloat(x) * cell,
-                    y: CGFloat(y) * cell,
-                    width: pix, height: pix
-                )
-                context.fill(Path(rect), with: .color(color))
-            }
-        }
-        // 5-wide grid (x 0–4) so the peak can extend antennae symmetrically
-        // on both sides. Height stays 12pt (6 rows) to match the old footprint.
-        .frame(width: 10, height: 12)
-        // Stronger glow on the fuller frames so the "breath" reads.
-        .shadow(color: color.opacity(glowAlpha), radius: glowRadius)
-        .onAppear { startTimer() }
-        .onDisappear { stopTimer() }
-    }
-
-    private var glowAlpha: Double {
-        switch frame % Self.keyframes.count {
-        case 0, 4: return 0.35
-        case 1, 3: return 0.65
-        default:   return 0.95  // frame 2 peak (3×3)
-        }
-    }
-
-    private var glowRadius: CGFloat {
-        switch frame % Self.keyframes.count {
-        case 0, 4: return 1.5
-        case 1, 3: return 3
-        default:   return 5   // frame 2 peak
-        }
-    }
-
-    private func startTimer() {
-        stopTimer()
-        let step = period / Double(Self.keyframes.count)
-        timer = Timer.scheduledTimer(withTimeInterval: step, repeats: true) { _ in
-            withAnimation(.linear(duration: step * 0.7)) {
-                frame = (frame + 1) % Self.keyframes.count
-            }
         }
     }
 

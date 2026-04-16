@@ -298,11 +298,15 @@ struct IslandView: View {
         .padding(.vertical, 8)
         // Keep only a small extra inset on notch Macs to avoid over-compressing text.
         .padding(.horizontal, viewModel.hasNotch ? 0 : 0)
-        // Fill the full compact bar so the hover area covers the entire
-        // visible strip (incl. the wings around the camera cutout) — not
-        // just the centered icon/text. `contentShape` makes transparent
-        // regions receive hover events.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Pin to the compact-bar dimensions so the hover area covers the
+        // entire visible strip (incl. the wings around the camera cutout).
+        // IMPORTANT: fixed dims (not maxWidth/maxHeight .infinity) —
+        // otherwise compactContent would briefly fill the enclosing
+        // ZStack's animated frame during the expanded→collapsed spring
+        // shrink, land its hit region over the former expanded panel
+        // area, and re-fire `.onHover(true)` on click-to-collapse, causing
+        // the panel to snap right back open.
+        .frame(width: viewModel.compactBarWidth, height: viewModel.compactBarHeight)
         .contentShape(Rectangle())
     }
 
@@ -1034,8 +1038,14 @@ struct CompactSpriteAndIndicator: View {
             ? .orange
             : nil
 
-        // spacing 0 — indicator reads as attached to the sprite rather
-        // than floating in the bar gap.
+        // Mirror the AgentRowView spacing rule: running's CometTrail
+        // reads as attached to the sprite (flush), every other glyph
+        // (! ? cursor blink) gets a small breathing gap so it doesn't
+        // fuse into the character.
+        let indicatorPad: CGFloat = (session.status == .running && !hasPendingPermission) ? 0 : 3
+        // Sprite pulses in sync with the indicator for waiting/permission
+        // so the "look at me" signal reads at a glance.
+        let spritePulse = hasPendingPermission || session.status == .waiting
         HStack(spacing: 0) {
             ZStack {
                 if session.agentType == .codex {
@@ -1048,26 +1058,21 @@ struct CompactSpriteAndIndicator: View {
                 // burst to show on the visible sprite.
                 PixelEffectOverlay()
             }
+            .pulsingOpacity(enabled: spritePulse)
 
-            // Compact bar hides the indicator for idle/finished states —
-            // the cursor blink ▌▌ doesn't carry useful info when the
-            // session is at rest and just adds noise next to the sprite.
-            // Running / waiting / permission states are meaningful so
-            // keep them visible (comet trail, ?, !).
-            if showIndicator {
-                SessionStatusIndicator(
-                    session: session,
-                    hasPendingPermission: hasPendingPermission
-                )
-            }
-        }
-    }
-
-    private var showIndicator: Bool {
-        if hasPendingPermission { return true }
-        switch session.status {
-        case .running, .waiting:     return true
-        case .justFinished, .done, .idle, .error: return false
+            // Show the status indicator for all states — idle/finished
+            // now renders the ▌▌ cursor blink (tinted with the agent's
+            // idle color) so the compact bar still signals "agent here,
+            // resting" instead of looking empty next to the sprite.
+            // Pass isDimmed so the idle/finished cursor blinks and
+            // dims, matching the expanded-row behavior.
+            let dimmed = session.status.isDimmedInUI && !hasPendingPermission
+            SessionStatusIndicator(
+                session: session,
+                hasPendingPermission: hasPendingPermission,
+                isDimmed: dimmed
+            )
+            .padding(.leading, indicatorPad)
         }
     }
 }

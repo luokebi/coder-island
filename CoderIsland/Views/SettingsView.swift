@@ -868,28 +868,18 @@ struct SettingsView: View {
         sectionTitle("Animations Preview")
 
         settingsCard {
-            // --- Agent sprites row ---
+            // --- Status indicators — one tile per (agent × status) so
+            // every animation we ship has a visible reference. Both
+            // agents share the same indicator glyphs, but the idle/done
+            // cursor uses the agent's idle tint, which is why we show
+            // both columns side-by-side.
             VStack(alignment: .leading, spacing: 10) {
-                Text("Agent sprites")
+                Text("Status indicators")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.7))
-                HStack(spacing: 20) {
-                    previewTile("Claude idle") {
-                        ClaudePixelChar(isAnimating: false)
-                    }
-                    previewTile("Claude running") {
-                        ClaudePixelChar(isAnimating: true)
-                    }
-                    previewTile("Claude waiting") {
-                        ClaudePixelChar(isAnimating: true, colorOverride: .orange)
-                    }
-                    previewTile("Codex idle") {
-                        CodexPixelChar(isAnimating: false)
-                    }
-                    previewTile("Codex running") {
-                        CodexPixelChar(isAnimating: true)
-                    }
-                }
+
+                statusIndicatorRow(agent: .claudeCode, label: "Claude")
+                statusIndicatorRow(agent: .codex, label: "Codex")
             }
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -897,109 +887,8 @@ struct SettingsView: View {
 
             rowDivider
 
-            // --- Status combos (sprite + indicator, non-running) ---
-            // Running is covered by its own section below; here we pair each
-            // non-running status with an agent sprite so the combo reads the
-            // same way it would in the real expanded panel.
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Status combos (sprite + indicator)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.7))
-                HStack(spacing: 20) {
-                    previewTile("Claude + Permission") {
-                        agentStatusCombo(agent: .claudeCode, animating: true, waitingColor: .orange) {
-                            PixelStatusIcon(
-                                pixels: [(1,0),(1,1),(1,2),(1,3),(1,5)],
-                                color: .orange
-                            )
-                        }
-                    }
-                    previewTile("Claude + Question") {
-                        agentStatusCombo(agent: .claudeCode, animating: true, waitingColor: .orange) {
-                            PixelStatusIcon(
-                                pixels: [(1,0),(2,0),(3,1),(2,2),(1,3),(1,5)],
-                                color: .orange
-                            )
-                        }
-                    }
-                    previewTile("Claude + Error") {
-                        agentStatusCombo(agent: .claudeCode, animating: false) {
-                            PixelStatusIcon(
-                                pixels: [(1,0),(1,1),(1,2),(1,3),(1,5)],
-                                color: .red
-                            )
-                        }
-                    }
-                    previewTile("Claude + Idle") {
-                        agentStatusCombo(agent: .claudeCode, animating: false) {
-                            PixelStatusIcon(
-                                pixels: [
-                                    (0,0),(0,1),(0,2),(0,3),(0,4),(0,5),
-                                    (1,0),(1,1),(1,2),(1,3),(1,4),(1,5),
-                                ],
-                                color: Color(red: 0.85, green: 0.52, blue: 0.35)
-                            )
-                        }
-                    }
-                    previewTile("Codex + Idle") {
-                        agentStatusCombo(agent: .codex, animating: false) {
-                            PixelStatusIcon(
-                                pixels: [
-                                    (0,0),(0,1),(0,2),(0,3),(0,4),(0,5),
-                                    (1,0),(1,1),(1,2),(1,3),(1,4),(1,5),
-                                ],
-                                color: Color(red: 0.25, green: 0.65, blue: 0.38)
-                            )
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-
-            rowDivider
-
-            // --- Row-layout combos (sprite + status, expanded-panel look) ---
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Running combo (sprite + indicator)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.7))
-                HStack(spacing: 20) {
-                    previewTile("Claude + breath") {
-                        agentStatusCombo(agent: .claudeCode) {
-                            BreathingPixelBall(color: runningBlue)
-                        }
-                    }
-                    previewTile("Claude + orbit") {
-                        agentStatusCombo(agent: .claudeCode) {
-                            OrbitingPixel(color: runningBlue)
-                        }
-                    }
-                    previewTile("Claude + comet") {
-                        agentStatusCombo(agent: .claudeCode) {
-                            CometTrail(color: runningBlue)
-                        }
-                    }
-                    previewTile("Codex + breath") {
-                        agentStatusCombo(agent: .codex) {
-                            BreathingPixelBall(color: runningBlue)
-                        }
-                    }
-                    previewTile("Codex + comet") {
-                        agentStatusCombo(agent: .codex) {
-                            CometTrail(color: runningBlue)
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-
-            rowDivider
-
             // --- Compact bar mock — shows how the notch renders in the
-            // collapsed state for each session status. Idle/finished
-            // sessions intentionally skip the status indicator.
+            // collapsed state for each session status.
             VStack(alignment: .leading, spacing: 10) {
                 Text("Compact bar (collapsed notch)")
                     .font(.system(size: 12, weight: .semibold))
@@ -1009,6 +898,7 @@ struct SettingsView: View {
                     compactBarMock(label: "Waiting", agent: .claudeCode, status: .waiting, taskName: "coder-island", subtitle: "Waiting for answer...", subtitleColor: .orange.opacity(0.8))
                     compactBarMock(label: "Permission", agent: .claudeCode, status: .running, hasPendingPermission: true, taskName: "coder-island", subtitle: "Permission needed", subtitleColor: .orange.opacity(0.85))
                     compactBarMock(label: "Just finished", agent: .claudeCode, status: .justFinished, taskName: "coder-island", subtitle: "Just finished", subtitleColor: Color(nsColor: .systemGreen).opacity(0.85))
+                    compactBarMock(label: "Done", agent: .claudeCode, status: .done, taskName: "coder-island")
                     compactBarMock(label: "Idle", agent: .codex, status: .idle, taskName: "job")
                 }
             }
@@ -1050,43 +940,82 @@ struct SettingsView: View {
         }
     }
 
-    /// Color used by the expanded panel for running sessions. Mirrors the
-    /// hard-coded value in AgentRowView so previews look identical.
-    private var runningBlue: Color {
-        Color(red: 0.3, green: 0.5, blue: 0.95)
+    /// A horizontal strip of `(sprite + indicator)` tiles — one per
+    /// status — for a single agent. Keeps rows aligned so it's easy to
+    /// compare Claude vs Codex at a glance.
+    @ViewBuilder
+    private func statusIndicatorRow(agent: AgentType, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.55))
+
+            HStack(spacing: 20) {
+                previewTile("Running") {
+                    indicatorPreview(agent: agent, status: .running)
+                }
+                previewTile("Waiting") {
+                    indicatorPreview(agent: agent, status: .waiting)
+                }
+                previewTile("Permission") {
+                    indicatorPreview(agent: agent, status: .running, hasPendingPermission: true)
+                }
+                previewTile("Just finished") {
+                    indicatorPreview(agent: agent, status: .justFinished)
+                }
+                previewTile("Done") {
+                    indicatorPreview(agent: agent, status: .done)
+                }
+                previewTile("Idle") {
+                    indicatorPreview(agent: agent, status: .idle)
+                }
+                previewTile("Error") {
+                    indicatorPreview(agent: agent, status: .error)
+                }
+            }
+        }
     }
 
-    /// Mirrors the HStack layout from AgentRowView.agentIcon so combo
-    /// previews match the real expanded-panel look (sprite 1.2× + 3pt gap
-    /// + status indicator).
+    /// Builds the real sprite + `SessionStatusIndicator` pair for a
+    /// given `(agent, status, hasPendingPermission)` combo using a
+    /// synthetic session. Matches the live expanded-row look so tweaks
+    /// to the indicator flow here instead of a parallel mock.
     @ViewBuilder
-    private func agentStatusCombo<Indicator: View>(
+    private func indicatorPreview(
         agent: AgentType,
-        animating: Bool = true,
-        waitingColor: Color? = nil,
-        @ViewBuilder indicator: () -> Indicator
+        status: AgentStatus,
+        hasPendingPermission: Bool = false
     ) -> some View {
-        // spacing 0 — comet looks best flush against the sprite, and the
-        // preview matches how the real row will render once we commit.
+        let isActive = status == .running || status == .waiting || hasPendingPermission
+        let waitingColor: Color? = (status == .waiting || hasPendingPermission) ? .orange : nil
+        let indicatorPad: CGFloat = (status == .running && !hasPendingPermission) ? 0 : 3
+        let spritePulse = hasPendingPermission || status == .waiting
+        let session = mockSession(agent: agent, status: status)
         HStack(spacing: 0) {
             Group {
                 switch agent {
                 case .claudeCode:
-                    ClaudePixelChar(isAnimating: animating, colorOverride: waitingColor)
+                    ClaudePixelChar(isAnimating: isActive, colorOverride: waitingColor)
                 case .codex:
-                    CodexPixelChar(isAnimating: animating, colorOverride: waitingColor)
+                    CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
                 }
             }
             .scaleEffect(1.2)
             .frame(width: 20, height: 20)
+            .pulsingOpacity(enabled: spritePulse)
 
-            indicator()
+            SessionStatusIndicator(
+                session: session,
+                hasPendingPermission: hasPendingPermission,
+                isDimmed: status.isDimmedInUI && !hasPendingPermission
+            )
+            .padding(.leading, indicatorPad)
         }
     }
 
     /// Mock of the real compact-notch bar for a given agent status.
-    /// Uses the same sprite / indicator pair as CompactSpriteAndIndicator
-    /// and mirrors the idle-hiding rule (no indicator when idle/finished/error).
+    /// Uses the same sprite + SessionStatusIndicator as the live compact
+    /// bar so status tweaks in the indicator flow here automatically.
     @ViewBuilder
     private func compactBarMock(
         label: String,
@@ -1099,7 +1028,12 @@ struct SettingsView: View {
     ) -> some View {
         let isActive = status == .running || status == .waiting || hasPendingPermission
         let waitingColor: Color? = (status == .waiting || hasPendingPermission) ? .orange : nil
-        let showInd: Bool = hasPendingPermission || status == .running || status == .waiting
+        // Compact bar now shows the indicator for every state (idle /
+        // done show ▌▌, justFinished shows ✓). Running gets a flush
+        // trail; everything else a small 3pt gap — same rule as the
+        // expanded row.
+        let indicatorPad: CGFloat = (status == .running && !hasPendingPermission) ? 0 : 3
+        let spritePulse = hasPendingPermission || status == .waiting
 
         HStack(spacing: 8) {
             Text(label)
@@ -1117,15 +1051,16 @@ struct SettingsView: View {
                             CodexPixelChar(isAnimating: isActive, colorOverride: waitingColor)
                         }
                     }
-                    if showInd {
-                        // Build a mock session object just for the indicator.
-                        // The real SessionStatusIndicator requires an
-                        // @ObservedObject AgentSession, so we synthesize one.
-                        SessionStatusIndicator(
-                            session: mockSession(agent: agent, status: status),
-                            hasPendingPermission: hasPendingPermission
-                        )
-                    }
+                    .pulsingOpacity(enabled: spritePulse)
+                    // Build a mock session object just for the indicator.
+                    // The real SessionStatusIndicator requires an
+                    // @ObservedObject AgentSession, so we synthesize one.
+                    SessionStatusIndicator(
+                        session: mockSession(agent: agent, status: status),
+                        hasPendingPermission: hasPendingPermission,
+                        isDimmed: status.isDimmedInUI && !hasPendingPermission
+                    )
+                    .padding(.leading, indicatorPad)
                 }
                 Text(taskName)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))

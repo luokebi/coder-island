@@ -253,6 +253,23 @@ class AgentManager: ObservableObject {
                                self.sessions[idx].acknowledgedCompletionMarker == incomingCompletionMarker {
                                 return .idle
                             }
+                            // Idle-stickiness: once the user has acknowledged
+                            // the finished card (tap → `acknowledgeRecentCompletion`),
+                            // the session is `.idle` with acknowledgedCompletionMarker
+                            // set. Don't let a subsequent scan un-idle it to
+                            // `.running` just because the JSONL parser returned
+                            // its "fallback running with no decisive recent entry"
+                            // for the same turn we already dismissed. The only
+                            // legitimate un-idle path is a real new turn —
+                            // UserPromptSubmit → applyHookEvent → .running —
+                            // which bypasses the scan's effectiveStatus entirely.
+                            // `.waiting` IS still allowed through so we don't
+                            // swallow a genuine ask prompt.
+                            if self.sessions[idx].status == .idle
+                                && self.sessions[idx].acknowledgedCompletionMarker != nil
+                                && session.status == .running {
+                                return .idle
+                            }
                             // Stickiness: once the Stop hook (or the prior jsonl
                             // end_turn detection) marks us .justFinished, don't
                             // let a subsequent scan regress us to .running just
