@@ -181,12 +181,16 @@ struct IslandView: View {
     private var compactContent: some View {
         HStack(spacing: 6) {
             if agentManager.sessions.isEmpty && viewModel.pendingPermissions.isEmpty {
+                // Flank with Spacers so the icon + text stay centered when
+                // the HStack fills the full bar width (see frame below).
+                Spacer(minLength: 0)
                 Image(systemName: "sparkles")
                     .font(.system(size: 10))
                     .foregroundColor(.gray)
                 Text("No agents")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.gray)
+                Spacer(minLength: 0)
             } else if let first = agentManager.sessions.first {
                 // Priority for what to surface in the compact bar:
                 // 1) session with a pending permission (hook-based)
@@ -294,6 +298,12 @@ struct IslandView: View {
         .padding(.vertical, 8)
         // Keep only a small extra inset on notch Macs to avoid over-compressing text.
         .padding(.horizontal, viewModel.hasNotch ? 0 : 0)
+        // Fill the full compact bar so the hover area covers the entire
+        // visible strip (incl. the wings around the camera cutout) — not
+        // just the centered icon/text. `contentShape` makes transparent
+        // regions receive hover events.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Expanded Panel
