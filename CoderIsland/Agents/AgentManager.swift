@@ -211,6 +211,17 @@ class AgentManager: ObservableObject {
                 for session in activeSessions {
                     session.completionMarker = self.stableCompletionMarker(for: session)
                     if !self.knownSessionIds.contains(session.id) {
+                        // First time seeing this session (includes app
+                        // restart). If the parser says it's already
+                        // finished, treat it as idle — the user either
+                        // acknowledged it in a previous app run (state
+                        // lost on restart) or it completed while the app
+                        // was not running. Re-surfacing old completions
+                        // as "just finished" is noisy.
+                        if session.status.isRecentlyFinished {
+                            session.status = .idle
+                            session.acknowledgedCompletionMarker = session.completionMarker
+                        }
                         self.sessions.append(session)
                         self.knownSessionIds.insert(session.id)
                         self.traceStatusTransition(
